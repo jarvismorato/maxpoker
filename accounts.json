@@ -2,7 +2,7 @@
   "gabriel": {
     "username": "Gabriel",
     "avatar": "🦁",
-    "bankroll": 99999999800,
+    "bankroll": 100000000000,
     "handsWon": 0,
     "handsPlayed": 4,
     "salt": "355b5cbcb23a070553d39fd5ada2dc73",
@@ -26,6 +26,26 @@
     "passwordHash": "12908f291017363b39fee3a70b22c44297db29071f66bd8820ae860ca750a51a",
     "bankroll": 12500,
     "lastBonusClaim": 1794596771338,
+    "handsWon": 0,
+    "handsPlayed": 0
+  },
+  "testuser_1794842231171": {
+    "username": "TestUser_1794842231171",
+    "avatar": "🦁",
+    "salt": "756dfff38682bf64a3271abdb37c4d87",
+    "passwordHash": "ffc03290b220ca010ed47ff9513e83b7d32eacdb0566bc13f214a421870ff20c",
+    "bankroll": 50000,
+    "lastBonusClaim": 0,
+    "handsWon": 0,
+    "handsPlayed": 0
+  },
+  "user_9r9ds": {
+    "username": "user_9r9ds",
+    "avatar": "🦁",
+    "salt": "1736ca312031094e5a3d3ad04c5e7dda",
+    "passwordHash": "6cd0fed85b6512b5ef3280e7cb49b6c091af2bbe2aed54e2b733342fc1e9cba8",
+    "bankroll": 50000,
+    "lastBonusClaim": 0,
     "handsWon": 0,
     "handsPlayed": 0
   }

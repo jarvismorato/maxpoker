@@ -97,7 +97,8 @@ const loginPasswordInput = document.getElementById('loginPassword');
 const regUsernameInput = document.getElementById('regUsername');
 const regPasswordInput = document.getElementById('regPassword');
 const authErrorMessage = document.getElementById('authErrorMessage');
-const btnQuickLoginGabriel = document.getElementById('btnQuickLoginGabriel');
+const linkGoRegister = document.getElementById('linkGoRegister');
+const linkGoLogin = document.getElementById('linkGoLogin');
 const regAvatarGrid = document.getElementById('regAvatarGrid');
 let selectedRegAvatar = '🦁';
 
@@ -230,6 +231,10 @@ function connect() {
       } else if (data.type === 'leftRoom') {
         currentRoomId = null;
         mySeatIndex = -1;
+        if (data.account) {
+          currentAccount = data.account;
+          updateAccountUI();
+        }
         showLobbyScreen();
         roomsData = data.rooms || [];
         renderRoomsList(roomsData);
@@ -362,15 +367,19 @@ tabBtnRegister.addEventListener('click', () => {
   hideAuthError();
 });
 
-btnQuickLoginGabriel.addEventListener('click', () => {
-  loginUsernameInput.value = 'Gabriel';
-  loginPasswordInput.value = '123456';
-  sendMsg({
-    type: 'login',
-    username: 'Gabriel',
-    password: '123456'
+if (linkGoRegister) {
+  linkGoRegister.addEventListener('click', (e) => {
+    e.preventDefault();
+    tabBtnRegister.click();
   });
-});
+}
+
+if (linkGoLogin) {
+  linkGoLogin.addEventListener('click', (e) => {
+    e.preventDefault();
+    tabBtnLogin.click();
+  });
+}
 
 loginForm.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -427,6 +436,13 @@ function renderRoomsList(rooms) {
     };
     const diffLabel = diffMap[room.botDifficulty] || 'Médio';
 
+    const sBlind = room.smallBlind ?? 10;
+    const bBlind = room.bigBlind ?? 20;
+    const players = room.playerCount ?? room.totalCount ?? 0;
+    const maxP = room.maxPlayers ?? room.maxSeats ?? 6;
+    const minB = room.minBuyIn ?? 400;
+    const maxB = room.maxBuyIn ?? 2000;
+
     card.innerHTML = `
       <div class="room-header">
         <span class="room-title-text">${room.name}</span>
@@ -436,24 +452,24 @@ function renderRoomsList(rooms) {
       <div class="room-meta-grid">
         <div class="meta-item">
           <span class="meta-label">Blinds</span>
-          <span class="meta-val">$${room.smallBlind} / $${room.bigBlind}</span>
+          <span class="meta-val">$${sBlind.toLocaleString('pt-BR')} / $${bBlind.toLocaleString('pt-BR')}</span>
         </div>
         <div class="meta-item">
           <span class="meta-label">Assentos</span>
-          <span class="meta-val">${room.playerCount} / ${room.maxPlayers}</span>
+          <span class="meta-val">${players} / ${maxP}</span>
         </div>
         <div class="meta-item">
           <span class="meta-label">Buy-in Mín.</span>
-          <span class="meta-val gold">$${room.minBuyIn.toLocaleString('pt-BR')}</span>
+          <span class="meta-val gold">$${minB.toLocaleString('pt-BR')}</span>
         </div>
         <div class="meta-item">
           <span class="meta-label">Buy-in Máx.</span>
-          <span class="meta-val gold">$${room.maxBuyIn.toLocaleString('pt-BR')}</span>
+          <span class="meta-val gold">$${maxB.toLocaleString('pt-BR')}</span>
         </div>
       </div>
 
       <button class="btn-join-room" data-room-id="${room.id}">
-        Entrar na Mesa
+        Jogar
       </button>
     `;
 
@@ -607,6 +623,14 @@ function renderTable(table) {
       mySeatIndex = i;
       break;
     }
+  }
+
+  // Atualiza fichas do jogador no topo da mesa
+  if (mySeatIndex !== -1 && table.seats[mySeatIndex]) {
+    const mySeat = table.seats[mySeatIndex];
+    tableAccountChips.textContent = `Fichas: $${mySeat.chips.toLocaleString('pt-BR')}`;
+  } else if (currentAccount) {
+    tableAccountChips.textContent = `Saldo: $${currentAccount.bankroll.toLocaleString('pt-BR')}`;
   }
 
   // Notificação de Vencedor

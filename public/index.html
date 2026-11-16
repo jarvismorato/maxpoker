@@ -10,7 +10,7 @@
   <div class="stars-app">
 
     <!-- ========================================== -->
-    <!-- TELA 0: AUTENTICAÇÃO (SÓBRIA E ELEGANTE)   -->
+    <!-- TELA 0: AUTENTICAÇÃO (LOGIN / REGISTRO)     -->
     <!-- ========================================== -->
     <div id="authScreen" class="screen auth-screen">
       <div class="auth-card">
@@ -19,14 +19,7 @@
             <span class="max-badge">MAX</span>
             <span class="brand-text">poker</span>
           </div>
-          <p class="auth-subtitle">Texas Hold'em Clássico</p>
-        </div>
-
-        <!-- Acesso Rápido para Gabriel -->
-        <div class="quick-vip-box">
-          <button id="btnQuickLoginGabriel" class="btn-quick-vip" type="button">
-            👑 Entrar como Gabriel <span class="vip-tag">100 BILHÕES</span>
-          </button>
+          <p class="auth-subtitle">Entre na sua conta ou crie uma nova para jogar</p>
         </div>
 
         <div class="auth-tabs">
@@ -38,27 +31,28 @@
         <form id="loginForm" class="auth-form">
           <div class="form-group">
             <label for="loginUsername">Usuário</label>
-            <input type="text" id="loginUsername" class="input-clean" placeholder="Seu usuário..." value="Gabriel" required autocomplete="username">
+            <input type="text" id="loginUsername" class="input-clean" placeholder="Seu nome de usuário..." required autocomplete="username">
           </div>
           <div class="form-group">
             <label for="loginPassword">Senha</label>
-            <input type="password" id="loginPassword" class="input-clean" placeholder="Sua senha..." value="123456" required autocomplete="current-password">
+            <input type="password" id="loginPassword" class="input-clean" placeholder="Sua senha..." required autocomplete="current-password">
           </div>
-          <button type="submit" class="btn-auth-submit">Entrar no Jogo</button>
+          <button type="submit" class="btn-auth-submit">Entrar</button>
+          <p class="auth-switch-prompt">Não tem uma conta? <a href="#" id="linkGoRegister">Cadastre-se grátis</a></p>
         </form>
 
         <!-- Formulário de Registro -->
         <form id="registerForm" class="auth-form hidden">
           <div class="form-group">
-            <label for="regUsername">Nome de Usuário</label>
-            <input type="text" id="regUsername" class="input-clean" placeholder="Mínimo 3 letras..." required maxlength="15" autocomplete="username">
+            <label for="regUsername">Criar Nome de Usuário</label>
+            <input type="text" id="regUsername" class="input-clean" placeholder="Mínimo 3 caracteres..." required maxlength="15" autocomplete="username">
           </div>
           <div class="form-group">
-            <label for="regPassword">Senha</label>
+            <label for="regPassword">Criar Senha</label>
             <input type="password" id="regPassword" class="input-clean" placeholder="Mínimo 4 caracteres..." required maxlength="30" autocomplete="new-password">
           </div>
           <div class="form-group">
-            <label>Avatar</label>
+            <label>Escolha seu Avatar</label>
             <div class="reg-avatar-grid" id="regAvatarGrid">
               <button type="button" class="reg-avatar-opt selected" data-avatar="🦁">🦁</button>
               <button type="button" class="reg-avatar-opt" data-avatar="🦈">🦈</button>
@@ -71,9 +65,10 @@
             </div>
           </div>
           <div class="bonus-notice-box">
-            Bônus inicial de <strong>$50.000 fichas</strong> na criação da conta.
+            Toda conta nova ganha <strong>$50.000 fichas</strong> gratuitas.
           </div>
-          <button type="submit" class="btn-auth-submit">Criar Conta</button>
+          <button type="submit" class="btn-auth-submit">Criar Minha Conta</button>
+          <p class="auth-switch-prompt">Já tem uma conta? <a href="#" id="linkGoLogin">Fazer login</a></p>
         </form>
 
         <div id="authErrorMessage" class="auth-error-msg hidden"></div>
@@ -81,10 +76,10 @@
     </div>
 
     <!-- ========================================== -->
-    <!-- TELA 1: LOBBY (MENOS CHAMATIVO, SUAVE)     -->
+    <!-- TELA 1: LOBBY (LIMPO E SÓBRIO)             -->
     <!-- ========================================== -->
     <div id="lobbyScreen" class="screen lobby-screen hidden">
-      <!-- Barra Superior Minimalista -->
+      <!-- Barra Superior -->
       <header class="lobby-topbar">
         <div class="brand">
           <span class="max-badge">MAX</span>
@@ -95,14 +90,14 @@
           <div class="user-info-pill">
             <span class="user-avatar-badge" id="lobbyUserAvatar">🦁</span>
             <div class="user-name-box">
-              <span class="user-display-name" id="lobbyUserName">Gabriel</span>
-              <span class="user-chips-gold" id="lobbyUserBankroll">$100.000.000.000</span>
+              <span class="user-display-name" id="lobbyUserName">Jogador</span>
+              <span class="user-chips-gold" id="lobbyUserBankroll">$50.000</span>
             </div>
           </div>
 
-          <!-- Bônus com Cooldown -->
-          <button id="btnClaimBonus" class="btn-bonus-timer" title="Bônus com cooldown de 4 horas">
-            <span id="bonusBtnLabel">🎁 +$10.000 Fichas</span>
+          <!-- Bônus 4 Horas -->
+          <button id="btnClaimBonus" class="btn-bonus-timer" title="Bônus a cada 4 horas">
+            <span id="bonusBtnLabel">🎁 +$10.000</span>
           </button>
 
           <!-- Sair -->
@@ -116,7 +111,7 @@
       <main class="lobby-body">
         <div class="lobby-actions-bar">
           <div>
-            <h2 class="section-title">Mesas Disponíveis</h2>
+            <h2 class="section-title">Mesas de Poker</h2>
             <p class="section-desc">Selecione uma mesa para jogar:</p>
           </div>
           <div class="lobby-action-buttons">
@@ -134,21 +129,21 @@
     </div>
 
     <!-- ========================================== -->
-    <!-- TELA 2: MESA DE POKER (DISCRETA E ELEGANTE)-->
+    <!-- TELA 2: MESA DE POKER                      -->
     <!-- ========================================== -->
     <div id="tableScreen" class="screen table-screen hidden">
-      <!-- Controles Mínimos Integrados (Sem menu superior poluído) -->
+      <!-- Cabeçalho Minimalista da Mesa -->
       <div class="table-overlay-header">
         <button id="btnLeaveTable" class="btn-table-leave">← Sair da Mesa</button>
         <div class="table-info-tag" id="tableHeaderName">Mesa MAXpoker</div>
         <div class="table-player-badge">
           <span id="tableUserAvatar">🦁</span>
-          <span id="tableUserName">Gabriel</span>
-          <span class="table-chips-accent" id="tableAccountChips">$100.000.000.000</span>
+          <span id="tableUserName">Jogador</span>
+          <span class="table-chips-accent" id="tableAccountChips">Fichas: $0</span>
         </div>
       </div>
 
-      <!-- Mesa Oval Feltro Imersiva -->
+      <!-- Mesa Oval Feltro -->
       <main class="table-viewport">
         <div class="poker-table-outer">
           <div class="poker-table-felt">
@@ -161,8 +156,8 @@
             <div id="winnerBanner" class="winner-banner hidden">
               <span class="winner-trophy">🏆</span>
               <div class="winner-texts">
-                <span id="winnerTitle" class="winner-title">Gabriel Venceu!</span>
-                <span id="winnerDetail" class="winner-detail">+$1.200 • Dois Pares</span>
+                <span id="winnerTitle" class="winner-title">Vencedor!</span>
+                <span id="winnerDetail" class="winner-detail">+$0</span>
               </div>
             </div>
 
@@ -188,7 +183,7 @@
         </div>
       </main>
 
-      <!-- Painel de Ações do Jogador: Sóbrio, limpo e legível -->
+      <!-- Painel de Ações do Jogador -->
       <footer class="action-console">
         <div class="raise-slider-box" id="raiseSliderBox">
           <div class="slider-presets">
@@ -237,11 +232,11 @@
         </div>
 
         <div class="modal-body-clean">
-          <p class="modal-instruction">Escolha com quantas fichas deseja entrar:</p>
+          <p class="modal-instruction">Escolha quantas fichas levar para a mesa:</p>
 
           <div class="buyin-limits-info">
             <span>Mín: <strong id="buyInMinLabel">$400</strong></span>
-            <span>Saldo: <strong id="buyInBalanceLabel" class="gold-text">$50.000</strong></span>
+            <span>Seu Saldo: <strong id="buyInBalanceLabel" class="gold-text">$50.000</strong></span>
             <span>Máx: <strong id="buyInMaxLabel">$2.000</strong></span>
           </div>
 
@@ -275,7 +270,7 @@
         <form id="createRoomForm" class="modal-form-clean">
           <div class="form-group">
             <label for="roomNameInput">Nome da Mesa:</label>
-            <input type="text" id="roomNameInput" class="input-clean" placeholder="Ex: Mesa VIP" value="Mesa dos Campeões" required maxlength="25">
+            <input type="text" id="roomNameInput" class="input-clean" placeholder="Ex: Mesa dos Amigos" value="Mesa VIP" required maxlength="25">
           </div>
 
           <div class="form-row">

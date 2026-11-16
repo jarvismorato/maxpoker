@@ -372,6 +372,10 @@ function getRoomsSummary() {
       defaultBuyIn: room.defaultBuyIn,
       humanCount,
       totalCount,
+      playerCount: totalCount,
+      smallBlind: SMALL_BLIND,
+      bigBlind: BIG_BLIND,
+      maxPlayers: NUM_SEATS,
       maxSeats: NUM_SEATS
     });
   }
@@ -666,7 +670,12 @@ function handleClientMessage(ws, msg) {
   // 8. Sair da Mesa
   else if (msg.type === 'leaveRoom') {
     leaveCurrentRoom(ws);
-    sendToClient(ws, { type: 'leftRoom', rooms: getRoomsSummary() });
+    const acc = client.username ? accounts[client.username.toLowerCase()] : null;
+    sendToClient(ws, {
+      type: 'leftRoom',
+      rooms: getRoomsSummary(),
+      account: acc ? sanitizeAccount(acc) : null
+    });
   }
 
   // 9. Sentar
@@ -781,6 +790,7 @@ function getSanitizedTable(room, clientId) {
       isAllIn: seat.isAllIn,
       lastAction: seat.lastAction,
       cards: seat.cards.map(c => {
+        if (seat.folded) return { hidden: true };
         if (showAll || isOwner) return c;
         return { hidden: true };
       })
@@ -956,6 +966,7 @@ function handlePlayerAction(room, seatIdx, action, raiseToAmount) {
   if (action === 'fold') {
     seat.folded = true;
     seat.lastAction = 'Fold';
+    seat.cards = [];
     broadcastRoom(room, `${seat.name} deu Fold.`);
   } else if (action === 'check') {
     if (toCall > 0) return;
@@ -987,9 +998,15 @@ function handlePlayerAction(room, seatIdx, action, raiseToAmount) {
     broadcastRoom(room, `${seat.name} aumentou para $${seat.currentBet.toLocaleString('pt-BR')}.`);
   }
 
-  const nonFolded = room.seats.filter(s => s && !s.folded && s.chips + s.currentBet > 0);
-  if (nonFolded.length === 1) {
-    awardPot(room, nonFolded[0]);
+  const activeInHand = room.seats.filter(s => s && !s.folded && s.cards && s.cards.length > 0);
+  if (activeInHand.length <= 1) {
+    clearTimeout(room.streetTimer);
+    clearTimeout(room.botTimer);
+    if (activeInHand.length === 1) {
+      awardPot(room, activeInHand[0]);
+    } else {
+      endHand(room);
+    }
     return;
   }
 
@@ -997,16 +1014,27 @@ function handlePlayerAction(room, seatIdx, action, raiseToAmount) {
 }
 
 function advanceTurn(room) {
-  const activeUnfolded = room.seats.filter(s => s && !s.folded);
-  const eligibleToAct = activeUnfolded.filter(s => !s.isAllIn);
+  const activeUnfolded = room.seats.filter(s => s && !s.folded && s.cards && s.cards.length > 0);
+  if (activeUnfolded.length <= 1) {
+    clearTimeout(room.streetTimer);
+    clearTimeout(room.botTimer);
+    if (activeUnfolded.length === 1) {
+      awardPot(room, activeUnfolded[0]);
+    } else {
+      endHand(room);
+    }
+    return;
+  }
 
+  const eligibleToAct = activeUnfolded.filter(s => !s.isAllIn);
   const betsEqual = activeUnfolded.every(s => s.isAllIn || s.currentBet === room.currentBet);
   const allActed = activeUnfolded.every(s => s.lastAction !== '' || s.isAllIn);
 
   if ((betsEqual && allActed) || eligibleToAct.length <= 1) {
-    // Pausa dramática para ver o final da rodada de apostas
+    // Pausa para ver o final da rodada de apostas
+    clearTimeout(room.streetTimer);
     const streetPause = getStreetPauseDelay(room.botSpeed);
-    setTimeout(() => {
+    room.streetTimer = setTimeout(() => {
       advanceStreet(room);
     }, streetPause);
     return;
@@ -1021,10 +1049,24 @@ function advanceTurn(room) {
 }
 
 function advanceStreet(room) {
+  const activeInHand = room.seats.filter(s => s && !s.folded && s.cards && s.cards.length > 0);
+  if (activeInHand.length <= 1) {
+    clearTimeout(room.streetTimer);
+    clearTimeout(room.botTimer);
+    if (activeInHand.length === 1) {
+      awardPot(room, activeInHand[0]);
+    } else {
+      endHand(room);
+    }
+    return;
+  }
+
   for (let i = 0; i < NUM_SEATS; i++) {
     if (room.seats[i]) {
       room.seats[i].currentBet = 0;
-      room.seats[i].lastAction = '';
+      if (!room.seats[i].folded) {
+        room.seats[i].lastAction = '';
+      }
     }
   }
   room.currentBet = 0;
@@ -1062,8 +1104,17 @@ function resolveShowdown(room) {
   room.currentTurnSeat = null;
 
   const contenders = room.seats
-    .map((s, idx) => ({ ...s, seatIndex: idx }))
-    .filter(s => s && s.id && !s.folded);
+    .map((s, idx) => (s ? { ...s, seatIndex: idx } : null))
+    .filter(s => s && s.id && !s.folded && s.cards && s.cards.length >= 2);
+
+  if (contenders.length === 0) {
+    endHand(room);
+    return;
+  }
+  if (contenders.length === 1) {
+    awardPot(room, contenders[0]);
+    return;
+  }
 
   let bestScore = null;
   let winners = [];
