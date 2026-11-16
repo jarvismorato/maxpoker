@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MAXpoker - No-Limit Texas Hold'em</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="stars-app">
+
+    <!-- ========================================== -->
+    <!-- TELA 0: AUTENTICAÇÃO (SÓBRIA E ELEGANTE)   -->
+    <!-- ========================================== -->
+    <div id="authScreen" class="screen auth-screen">
+      <div class="auth-card">
+        <div class="auth-header">
+          <div class="brand brand-center">
+            <span class="max-badge">MAX</span>
+            <span class="brand-text">poker</span>
+          </div>
+          <p class="auth-subtitle">Texas Hold'em Clássico</p>
+        </div>
+
+        <!-- Acesso Rápido para Gabriel -->
+        <div class="quick-vip-box">
+          <button id="btnQuickLoginGabriel" class="btn-quick-vip" type="button">
+            👑 Entrar como Gabriel <span class="vip-tag">100 BILHÕES</span>
+          </button>
+        </div>
+
+        <div class="auth-tabs">
+          <button id="tabBtnLogin" class="tab-btn active" type="button">Entrar</button>
+          <button id="tabBtnRegister" class="tab-btn" type="button">Criar Conta</button>
+        </div>
+
+        <!-- Formulário de Login -->
+        <form id="loginForm" class="auth-form">
+          <div class="form-group">
+            <label for="loginUsername">Usuário</label>
+            <input type="text" id="loginUsername" class="input-clean" placeholder="Seu usuário..." value="Gabriel" required autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label for="loginPassword">Senha</label>
+            <input type="password" id="loginPassword" class="input-clean" placeholder="Sua senha..." value="123456" required autocomplete="current-password">
+          </div>
+          <button type="submit" class="btn-auth-submit">Entrar no Jogo</button>
+        </form>
+
+        <!-- Formulário de Registro -->
+        <form id="registerForm" class="auth-form hidden">
+          <div class="form-group">
+            <label for="regUsername">Nome de Usuário</label>
+            <input type="text" id="regUsername" class="input-clean" placeholder="Mínimo 3 letras..." required maxlength="15" autocomplete="username">
+          </div>
+          <div class="form-group">
+            <label for="regPassword">Senha</label>
+            <input type="password" id="regPassword" class="input-clean" placeholder="Mínimo 4 caracteres..." required maxlength="30" autocomplete="new-password">
+          </div>
+          <div class="form-group">
+            <label>Avatar</label>
+            <div class="reg-avatar-grid" id="regAvatarGrid">
+              <button type="button" class="reg-avatar-opt selected" data-avatar="🦁">🦁</button>
+              <button type="button" class="reg-avatar-opt" data-avatar="🦈">🦈</button>
+              <button type="button" class="reg-avatar-opt" data-avatar="👑">👑</button>
+              <button type="button" class="reg-avatar-opt" data-avatar="🐺">🐺</button>
+              <button type="button" class="reg-avatar-opt" data-avatar="🐯">🐯</button>
+              <button type="button" class="reg-avatar-opt" data-avatar="🦅">🦅</button>
+              <button type="button" class="reg-avatar-opt" data-avatar="🎩">🎩</button>
+              <button type="button" class="reg-avatar-opt" data-avatar="🤖">🤖</button>
+            </div>
+          </div>
+          <div class="bonus-notice-box">
+            Bônus inicial de <strong>$50.000 fichas</strong> na criação da conta.
+          </div>
+          <button type="submit" class="btn-auth-submit">Criar Conta</button>
+        </form>
+
+        <div id="authErrorMessage" class="auth-error-msg hidden"></div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- TELA 1: LOBBY (MENOS CHAMATIVO, SUAVE)     -->
+    <!-- ========================================== -->
+    <div id="lobbyScreen" class="screen lobby-screen hidden">
+      <!-- Barra Superior Minimalista -->
+      <header class="lobby-topbar">
+        <div class="brand">
+          <span class="max-badge">MAX</span>
+          <span class="brand-text">poker</span>
+        </div>
+
+        <div class="user-strip">
+          <div class="user-info-pill">
+            <span class="user-avatar-badge" id="lobbyUserAvatar">🦁</span>
+            <div class="user-name-box">
+              <span class="user-display-name" id="lobbyUserName">Gabriel</span>
+              <span class="user-chips-gold" id="lobbyUserBankroll">$100.000.000.000</span>
+            </div>
+          </div>
+
+          <!-- Bônus com Cooldown -->
+          <button id="btnClaimBonus" class="btn-bonus-timer" title="Bônus com cooldown de 4 horas">
+            <span id="bonusBtnLabel">🎁 +$10.000 Fichas</span>
+          </button>
+
+          <!-- Sair -->
+          <button id="btnLogout" class="btn-logout" title="Sair da Conta">
+            Sair
+          </button>
+        </div>
+      </header>
+
+      <!-- Conteúdo do Lobby -->
+      <main class="lobby-body">
+        <div class="lobby-actions-bar">
+          <div>
+            <h2 class="section-title">Mesas Disponíveis</h2>
+            <p class="section-desc">Selecione uma mesa para jogar:</p>
+          </div>
+          <div class="lobby-action-buttons">
+            <button class="btn-clean-primary" id="btnOpenCreateModal">
+              ➕ Nova Mesa
+            </button>
+          </div>
+        </div>
+
+        <!-- Grade de Mesas -->
+        <div class="tables-grid" id="roomsList">
+          <!-- Renderizado via JavaScript -->
+        </div>
+      </main>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- TELA 2: MESA DE POKER (DISCRETA E ELEGANTE)-->
+    <!-- ========================================== -->
+    <div id="tableScreen" class="screen table-screen hidden">
+      <!-- Controles Mínimos Integrados (Sem menu superior poluído) -->
+      <div class="table-overlay-header">
+        <button id="btnLeaveTable" class="btn-table-leave">← Sair da Mesa</button>
+        <div class="table-info-tag" id="tableHeaderName">Mesa MAXpoker</div>
+        <div class="table-player-badge">
+          <span id="tableUserAvatar">🦁</span>
+          <span id="tableUserName">Gabriel</span>
+          <span class="table-chips-accent" id="tableAccountChips">$100.000.000.000</span>
+        </div>
+      </div>
+
+      <!-- Mesa Oval Feltro Imersiva -->
+      <main class="table-viewport">
+        <div class="poker-table-outer">
+          <div class="poker-table-felt">
+            <div class="felt-watermark">
+              <span class="watermark-symbol">♠</span>
+              <span class="watermark-label" id="watermarkText">MAXPOKER</span>
+            </div>
+
+            <!-- Banner Notificação de Vencedor da Mão -->
+            <div id="winnerBanner" class="winner-banner hidden">
+              <span class="winner-trophy">🏆</span>
+              <div class="winner-texts">
+                <span id="winnerTitle" class="winner-title">Gabriel Venceu!</span>
+                <span id="winnerDetail" class="winner-detail">+$1.200 • Dois Pares</span>
+              </div>
+            </div>
+
+            <!-- Centro da Mesa: Pote e Cartas Comunitárias -->
+            <div class="board-center">
+              <div class="pot-badge" id="potDisplay">POTE: $0</div>
+              <div class="board-cards" id="communityCards">
+                <!-- 5 cartas comunitárias -->
+              </div>
+              <div class="table-ticker" id="tableStatus">Aguardando início...</div>
+            </div>
+
+            <!-- 6 Assentos -->
+            <div class="seats-container">
+              <div class="seat seat-0" id="seat-0" data-seat="0"></div>
+              <div class="seat seat-1" id="seat-1" data-seat="1"></div>
+              <div class="seat seat-2" id="seat-2" data-seat="2"></div>
+              <div class="seat seat-3" id="seat-3" data-seat="3"></div>
+              <div class="seat seat-4" id="seat-4" data-seat="4"></div>
+              <div class="seat seat-5" id="seat-5" data-seat="5"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Painel de Ações do Jogador: Sóbrio, limpo e legível -->
+      <footer class="action-console">
+        <div class="raise-slider-box" id="raiseSliderBox">
+          <div class="slider-presets">
+            <button type="button" class="btn-preset" id="presetMin">Mín</button>
+            <button type="button" class="btn-preset" id="preset2x">2x</button>
+            <button type="button" class="btn-preset" id="preset3x">3x</button>
+            <button type="button" class="btn-preset" id="presetPot">Pote</button>
+            <button type="button" class="btn-preset" id="presetAllIn">All-in</button>
+          </div>
+          <div class="slider-control">
+            <input type="range" id="betSlider" min="20" max="1000" step="10" value="40">
+            <span class="slider-value" id="betSliderValue">$40</span>
+          </div>
+        </div>
+
+        <div class="action-buttons-group">
+          <!-- Botão Fold -->
+          <button id="btnFold" class="btn-action btn-fold" disabled>
+            <span class="btn-title">FOLD</span>
+            <span class="btn-sub">Desistir</span>
+          </button>
+
+          <!-- Botão Check/Call -->
+          <button id="btnCheckCall" class="btn-action btn-call" disabled>
+            <span class="btn-title" id="checkCallTitle">CHECK</span>
+            <span class="btn-sub" id="checkCallSub">Passar</span>
+          </button>
+
+          <!-- Botão Bet/Raise -->
+          <button id="btnBetRaise" class="btn-action btn-raise" disabled>
+            <span class="btn-title" id="betRaiseTitle">APOSTAR</span>
+            <span class="btn-sub" id="betRaiseSub">$40</span>
+          </button>
+        </div>
+      </footer>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 1: ESCOLHA DE BUY-IN AJUSTÁVEL       -->
+    <!-- ========================================== -->
+    <div id="modalBuyIn" class="modal-backdrop hidden">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3 id="buyInModalTableName">Mesa MAXpoker</h3>
+          <button class="btn-close-modal" id="btnCloseBuyInModal">✕</button>
+        </div>
+
+        <div class="modal-body-clean">
+          <p class="modal-instruction">Escolha com quantas fichas deseja entrar:</p>
+
+          <div class="buyin-limits-info">
+            <span>Mín: <strong id="buyInMinLabel">$400</strong></span>
+            <span>Saldo: <strong id="buyInBalanceLabel" class="gold-text">$50.000</strong></span>
+            <span>Máx: <strong id="buyInMaxLabel">$2.000</strong></span>
+          </div>
+
+          <div class="buyin-display-box">
+            <span class="buyin-amount-number" id="buyInSelectedDisplay">$1.000</span>
+          </div>
+
+          <input type="range" id="buyInSlider" min="400" max="2000" step="100" value="1000" class="styled-range">
+
+          <div class="buyin-quick-presets">
+            <button type="button" class="btn-preset-chip" id="btnBuyInMin">Mínimo</button>
+            <button type="button" class="btn-preset-chip" id="btnBuyInHalf">Metade</button>
+            <button type="button" class="btn-preset-chip" id="btnBuyInMax">Máximo</button>
+          </div>
+
+          <button id="btnConfirmBuyIn" class="btn-confirm-action">Entrar na Mesa</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 2: CRIAR NOVA MESA                   -->
+    <!-- ========================================== -->
+    <div id="modalCreateRoom" class="modal-backdrop hidden">
+      <div class="modal-box">
+        <div class="modal-header">
+          <h3>Nova Mesa</h3>
+          <button class="btn-close-modal" id="btnCloseCreateModal">✕</button>
+        </div>
+
+        <form id="createRoomForm" class="modal-form-clean">
+          <div class="form-group">
+            <label for="roomNameInput">Nome da Mesa:</label>
+            <input type="text" id="roomNameInput" class="input-clean" placeholder="Ex: Mesa VIP" value="Mesa dos Campeões" required maxlength="25">
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="minBuyInInput">Buy-in Mínimo ($):</label>
+              <input type="number" id="minBuyInInput" class="input-clean" value="400" min="200" step="100">
+            </div>
+            <div class="form-group">
+              <label for="maxBuyInInput">Buy-in Máximo ($):</label>
+              <input type="number" id="maxBuyInInput" class="input-clean" value="2000" min="400" step="100">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="botDifficultySelect">Nível dos Bots:</label>
+              <select id="botDifficultySelect" class="select-clean">
+                <option value="easy">Iniciante</option>
+                <option value="medium" selected>Intermediário</option>
+                <option value="hard">Avançado</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="botSpeedSelect">Velocidade:</label>
+              <select id="botSpeedSelect" class="select-clean">
+                <option value="slow">Pausado (2.5s)</option>
+                <option value="normal" selected>Normal (~1.8s)</option>
+                <option value="fast">Rápido (~0.9s)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group checkbox-row">
+            <label class="clean-checkbox-label">
+              <input type="checkbox" id="autoFillBotsCheck" checked>
+              <span>Completar vagas com Bots</span>
+            </label>
+          </div>
+
+          <button type="submit" class="btn-confirm-action">Criar Mesa</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast de Notificação -->
+    <div id="toastNotification" class="toast-clean hidden"></div>
+
+  </div>
+
+  <script src="client.js"></script>
+</body>
+</html>

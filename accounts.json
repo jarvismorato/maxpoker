@@ -1,0 +1,32 @@
+{
+  "gabriel": {
+    "username": "Gabriel",
+    "avatar": "🦁",
+    "bankroll": 99999999800,
+    "handsWon": 0,
+    "handsPlayed": 4,
+    "salt": "355b5cbcb23a070553d39fd5ada2dc73",
+    "passwordHash": "a06a9365fd4cacf1023ee8585328f9435f76fb169e07ab526e2ec083ae3772e0",
+    "lastBonusClaim": 1794598215949
+  },
+  "tubarão": {
+    "username": "Tubarão",
+    "avatar": "🦈",
+    "bankroll": 2509890,
+    "handsWon": 5,
+    "handsPlayed": 13,
+    "salt": "16e0996bdfac274529e128af3b216b5b",
+    "passwordHash": "86140951aac141be57d7d748caeb64c5b21866696455ab75781b9f81ee7bcc6e",
+    "lastBonusClaim": 0
+  },
+  "proplayer": {
+    "username": "ProPlayer",
+    "avatar": "🐺",
+    "salt": "7acde8e9ed5a288de66e847e66e054ad",
+    "passwordHash": "12908f291017363b39fee3a70b22c44297db29071f66bd8820ae860ca750a51a",
+    "bankroll": 12500,
+    "lastBonusClaim": 1794596771338,
+    "handsWon": 0,
+    "handsPlayed": 0
+  }
+}
