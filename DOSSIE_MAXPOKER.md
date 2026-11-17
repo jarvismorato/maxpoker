@@ -1,6 +1,6 @@
 # Dossiê técnico do MAXpoker
 
-Atualizado em 17 de novembro de 2026 · Versão 1.3.0
+Atualizado em 17 de novembro de 2026 · Versão 1.4.0
 
 ## Objetivo e escopo
 
@@ -14,7 +14,8 @@ Repositório informado: https://github.com/jarvismorato/maxpoker.
 - Node.js e módulos nativos http, fs, path e crypto.
 - WebSocket com a biblioteca ws; mensagens JSON e limite de 16 KiB por mensagem.
 - Interface HTML, CSS e JavaScript sem etapa de build; sons pela Web Audio API.
-- accounts.json para contas, saldos e reserva recuperável das fichas na mesa.
+- PostgreSQL em produção (DATABASE_URL), com snapshot atômico JSONB de contas, saldos e reservas.
+- accounts.json apenas como armazenamento local de desenvolvimento ou fonte explícita de importação.
 - Mesas, baralho, temporizadores e tokens de sessão em memória de um único processo.
 - HTTPS/WSS depende do proxy/hospedagem. É proteção de transporte; não é criptografia ponta a ponta entre jogadores.
 - O script iniciar-cloudflare.ps1 é uma opção de túnel local, não uma dependência obrigatória da aplicação.
@@ -26,7 +27,8 @@ server.js              Servidor, contas, regras e bots
 public/index.html      Login, lobby, mesa e modais
 public/style.css       Estilos e adaptação para telas pequenas
 public/client.js       WebSocket, interface, sons e ações
-accounts.json          Dados das contas; não usar em testes
+accounts.json          Dados locais; não usar em testes
+lib/postgres-store.js  Gravação atômica e confirmação após persistência
 package.json           Versão, dependências e comandos
 package-lock.json      Versões de instalação
 README.md              Guia rápido
@@ -70,7 +72,8 @@ O buy-in deve ser um inteiro dentro dos limites da mesa e do saldo disponível. 
 o mínimo é 2.000, o máximo deve ser pelo menos o mínimo e até 1 bilhão; o padrão deve estar nessa faixa.
 
 Cada snapshot inclui a carteira e tableEscrow, que representa stack e contribuições ainda não liquidadas.
-O arquivo é gravado primeiro em .tmp e depois renomeado. Ao reiniciar, a reserva é creditada uma única vez,
+Em produção, o snapshot é gravado no PostgreSQL antes da confirmação ao cliente.
+Uma revisão impede processos antigos de sobrescrever o estado. No modo local, o arquivo é gravado em .tmp e renomeado. Ao reiniciar, a reserva é creditada uma única vez,
 a mão interrompida é cancelada e as sessões precisam de novo login. Não é uma retomada da mão antiga.
 Dados malformados interrompem a inicialização para impedir substituição silenciosa de contas.
 
@@ -101,14 +104,22 @@ Uma tentativa de aumento impossível é convertida em call, evitando travamento 
 ## Operação, testes e limites
 
 Na pasta do projeto, execute npm ci e npm start; padrão http://localhost:3000.
-PORT escolhe a porta; ACCOUNTS_FILE escolhe o caminho dos dados. npm test executa testes isolados
+PORT escolhe a porta; DATABASE_URL configura o banco obrigatório no Render. ACCOUNTS_FILE escolhe
+o arquivo local; IMPORT_ACCOUNTS_FILE importa um backup apenas ao inicializar um banco vazio.
+GET /healthz informa o modo ativo. npm test executa testes isolados
 com temporizadores controlados, sem acessar contas reais.
 
 A cobertura inclui valores inválidos, opção do big blind, all-in, potes laterais, fichas restantes,
 entrada durante mão, reinício, reconexão, saída e decisões de bots com pouco stack.
 
-Use um volume persistente na hospedagem e backups externos. Um arquivo JSON não fornece coordenação
-entre múltiplos processos. Tokens não sobrevivem a reinícios. As senhas existentes usam SHA-256 com salt;
+Use um banco PostgreSQL persistente e backups externos. Falhas de banco interrompem o servidor
+sem confirmação de operações pendentes e sem recorrer ao disco temporário. Use um processo ativo;
+a revisão do snapshot protege contra sobreposição durante deploys. O modo JSON local não coordena múltiplos processos. Tokens não sobrevivem a reinícios. As senhas existentes usam SHA-256 com salt;
 uma migração para uma função dedicada de derivação de senhas permanece uma melhoria de segurança.
 Não há comprovação de prontidão para dinheiro real, auditoria de segurança completa nem teste de carga
 nesta revisão. Os testes descritos verificam cenários concretos, não todas as combinações possíveis.
+
+O teste de integração, ativado por TEST_DATABASE_URL, usa PostgreSQL real e verifica contas,
+saldos, reserva e ausência de restituição duplicada após perda do processo e dois reinícios.
+O PostgreSQL gratuito do Render expira após 30 dias; não atende ao armazenamento permanente.
+A URL e os limites do provedor devem ser configurados e verificados antes de publicar esta versão.

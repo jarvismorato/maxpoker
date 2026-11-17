@@ -7,6 +7,35 @@ const { WebSocketServer } = require('ws');
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const ACCOUNTS_FILE = process.env.ACCOUNTS_FILE || path.join(__dirname, 'accounts.json');
+const DATABASE_URL = process.env.DATABASE_URL;
+if (process.env.RENDER === 'true' && !DATABASE_URL) {
+  throw new Error('DATABASE_URL obrigatória no Render: armazenamento temporário recusado.');
+}
+let databaseStore = null;
+let durableQueue = null;
+let databaseDirty = false;
+let deliveries = null;
+let storageReady = false;
+
+function runStateChange(action) {
+  return durableQueue ? durableQueue.run(action) : action();
+}
+const scheduledTasks = new Map();
+function scheduleTask(action, delay) {
+  const ticket = { cancelled: false };
+  const timer = setTimeout(() => runStateChange(() => {
+    scheduledTasks.delete(timer);
+    if (!ticket.cancelled) return action();
+  }), delay);
+  scheduledTasks.set(timer, ticket);
+  return timer;
+}
+function cancelTask(timer) {
+  const ticket = scheduledTasks.get(timer);
+  if (ticket) ticket.cancelled = true;
+  scheduledTasks.delete(timer);
+  clearTimeout(timer);
+}
 
 // Regras de Fichas
 const DEFAULT_START_CHIPS = 50000; // Contas normais começam com 50.000
@@ -21,27 +50,32 @@ function hashPassword(password, salt) {
   return crypto.createHash('sha256').update(password + salt).digest('hex');
 }
 
+function normalizeAccounts(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Contas inválidas');
+  const normalized = Object.create(null);
+  for (const [key, acc] of Object.entries(data)) {
+    const lowerKey = key.toLowerCase();
+    if (!acc || typeof acc !== 'object' || !acc.salt || !acc.passwordHash ||
+        !Number.isSafeInteger(acc.bankroll) || acc.bankroll < 0 ||
+        !Number.isSafeInteger(acc.tableEscrow ?? 0) || (acc.tableEscrow ?? 0) < 0 ||
+        !Number.isSafeInteger(acc.bankroll + (acc.tableEscrow ?? 0))) {
+      throw new Error('Registro de conta inválido: ' + lowerKey);
+    }
+    if (!acc.lastBonusClaim) acc.lastBonusClaim = 0;
+
+    acc.bankroll += acc.tableEscrow || 0;
+    acc.tableEscrow = 0;
+
+    normalized[lowerKey] = acc;
+  }
+  return normalized;
+}
+
 function loadAccounts() {
   try {
     if (fs.existsSync(ACCOUNTS_FILE)) {
       const data = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf8'));
-      const normalized = Object.create(null);
-      for (const [key, acc] of Object.entries(data)) {
-        const lowerKey = key.toLowerCase();
-        if (!acc || typeof acc !== 'object' || !acc.salt || !acc.passwordHash ||
-            !Number.isSafeInteger(acc.bankroll) || acc.bankroll < 0 ||
-            !Number.isSafeInteger(acc.tableEscrow ?? 0) || (acc.tableEscrow ?? 0) < 0 ||
-            !Number.isSafeInteger(acc.bankroll + (acc.tableEscrow ?? 0))) {
-          throw new Error('Registro de conta inválido: ' + lowerKey);
-        }
-        if (!acc.lastBonusClaim) acc.lastBonusClaim = 0;
-
-        acc.bankroll += acc.tableEscrow || 0;
-        acc.tableEscrow = 0;
-
-        normalized[lowerKey] = acc;
-      }
-      return normalized;
+      return normalizeAccounts(data);
     }
   } catch (e) {
     throw new Error('Contas inválidas: inicialização cancelada para preservar dados.', { cause: e });
@@ -50,7 +84,7 @@ function loadAccounts() {
   return Object.create(null);
 }
 
-const accounts = loadAccounts();
+const accounts = DATABASE_URL ? Object.create(null) : loadAccounts();
 
 function saveAccounts() {
   for (const acc of Object.values(accounts)) acc.tableEscrow = 0;
@@ -59,6 +93,7 @@ function saveAccounts() {
     const acc = accounts[seat.username.toLowerCase()];
     if (acc) acc.tableEscrow += seat.chips + (seat.totalBet || 0);
   }
+  if (databaseStore) { databaseDirty = true; return; }
   try {
     fs.writeFileSync(ACCOUNTS_FILE + '.tmp', JSON.stringify(accounts, null, 2), 'utf8');
     fs.renameSync(ACCOUNTS_FILE + '.tmp', ACCOUNTS_FILE);
@@ -84,6 +119,11 @@ const MIME_TYPES = {
 };
 
 const server = http.createServer((req, res) => {
+  if (req.url === '/healthz') {
+    res.writeHead(storageReady ? 200 : 503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify({ status: storageReady ? 'ok' : 'unavailable', storage: DATABASE_URL ? 'postgres' : 'file' }));
+    return;
+  }
   let reqPath = req.url === '/' ? '/index.html' : req.url;
   let pathname;
   try { pathname = decodeURIComponent(new URL(reqPath, 'http://localhost').pathname); }
@@ -328,6 +368,7 @@ createRoom({
 // Conexões WebSocket & Autenticação
 // ==========================================
 wss.on('connection', (ws) => {
+  runStateChange(() => {
   const clientId = 'user_' + Math.random().toString(36).substring(2, 9);
   clients.set(ws, { id: clientId, username: null, roomId: null, seatIndex: -1 });
 
@@ -336,26 +377,27 @@ wss.on('connection', (ws) => {
     clientId,
     rooms: getRoomsSummary()
   });
+  });
 
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString());
-      handleClientMessage(ws, msg);
+      runStateChange(() => handleClientMessage(ws, msg));
     } catch (e) {
       console.error('Erro na mensagem do cliente:', e);
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', () => runStateChange(() => {
     const client = clients.get(ws);
     if (!client) return;
     client.disconnected = true;
-    client.disconnectTimer = setTimeout(() => {
+    client.disconnectTimer = scheduleTask(() => {
       leaveCurrentRoom(ws);
       clients.delete(ws);
       broadcastLobby();
     }, 30000);
-  });
+  }));
 });
 
 function getRoomsSummary() {
@@ -424,7 +466,7 @@ function sitPlayerInRoom(room, client, targetSeatIndex = -1, requestedBuyIn = nu
     return { success: false, message: `Você precisa de pelo menos $${minB.toLocaleString('pt-BR')} fichas para entrar nesta mesa. Resgate o bônus ou escolha outra mesa!` };
   }
 
-  let buyIn = requestedBuyIn !== null ? Number(requestedBuyIn) : room.defaultBuyIn;
+  let buyIn = requestedBuyIn !== null ? requestedBuyIn : room.defaultBuyIn;
   if (!Number.isSafeInteger(buyIn) || buyIn < minB || buyIn > maxB || buyIn > acc.bankroll)
     return { success: false, message: 'Buy-in inválido ou saldo insuficiente.' };
 
@@ -505,7 +547,7 @@ function attachAccount(ws, key) {
       sendToClient(ws, { type: 'authError', message: 'Esta conta já está conectada em outra aba.' });
       return false;
     }
-    clearTimeout(old.disconnectTimer);
+    cancelTask(old.disconnectTimer);
     Object.assign(client, { id: old.id, roomId: old.roomId, seatIndex: old.seatIndex });
     clients.delete(oldWs);
   }
@@ -675,7 +717,7 @@ function handleClientMessage(ws, msg) {
       sendToClient(ws, { type: 'alert', message: 'Dificuldade ou velocidade inválida.' });
       return;
     }
-    const minB = Number(msg.minBuyIn), maxB = Number(msg.maxBuyIn), defB = Number(msg.defaultBuyIn);
+    const minB = (typeof msg.minBuyIn === 'number' ? msg.minBuyIn : NaN), maxB = (typeof msg.maxBuyIn === 'number' ? msg.maxBuyIn : NaN), defB = (typeof msg.defaultBuyIn === 'number' ? msg.defaultBuyIn : NaN);
     if (![minB, maxB, defB].every(Number.isSafeInteger) || minB < BIG_BLIND * 10 ||
         maxB < minB || maxB > 1000000000 || defB < minB || defB > maxB) {
       sendToClient(ws, { type: 'alert', message: 'Limites inválidos: mínimo 2.000; buy-in padrão dentro dos limites.' });
@@ -692,12 +734,12 @@ function handleClientMessage(ws, msg) {
       defaultBuyIn: defB
     });
     broadcastLobby();
-    joinRoom(ws, newRoom.id, Number(msg.playerBuyIn) || defB);
+    joinRoom(ws, newRoom.id, (msg.playerBuyIn == null ? defB : (typeof msg.playerBuyIn === 'number' ? msg.playerBuyIn : NaN)));
   }
 
   // 7. Entrar na Mesa com Buy-in
   else if (msg.type === 'joinRoom') {
-    joinRoom(ws, msg.roomId, msg.buyInAmount == null ? null : Number(msg.buyInAmount));
+    joinRoom(ws, msg.roomId, msg.buyInAmount == null ? null : (typeof msg.buyInAmount === 'number' ? msg.buyInAmount : NaN));
   }
 
   // 8. Sair da Mesa
@@ -873,6 +915,7 @@ function broadcastRoom(room, statusMsg = null) {
 }
 
 function sendToClient(ws, data) {
+  if (deliveries) { deliveries.push([ws, JSON.stringify(data)]); return; }
   if (ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(data));
   }
@@ -909,8 +952,8 @@ function checkGameStart(room) {
   if (seated.length >= 2) {
     room.statusMsg = 'Embaralhando cartas...';
     broadcastRoom(room);
-    clearTimeout(room.timer);
-    room.timer = setTimeout(() => {
+    cancelTask(room.timer);
+    room.timer = scheduleTask(() => {
       if (!room.handInProgress && getSeatedPlayers(room).length >= 2) {
         startNewHand(room);
       }
@@ -931,8 +974,8 @@ function contenders(room) {
 
 function startNewHand(room) {
   if (getSeatedPlayers(room).length < 2) return;
-  clearTimeout(room.streetTimer);
-  clearTimeout(room.actionTimer);
+  cancelTask(room.streetTimer);
+  cancelTask(room.actionTimer);
   room.handInProgress = true;
   room.deck = createCryptoShuffledDeck();
   room.communityCards = [];
@@ -1005,8 +1048,8 @@ function handlePlayerAction(room, seatIdx, action, raiseToAmount) {
   } else {
     postBet(room, seatIdx, Math.min(toCall, seat.chips), toCall ? 'Call' : 'Check');
   }
-  clearTimeout(room.actionTimer);
-  clearTimeout(room.botTimer);
+  cancelTask(room.actionTimer);
+  cancelTask(room.botTimer);
   seat.actedAtBet = room.currentBet;
   room.pendingActions.delete(seatIdx);
   saveAccounts();
@@ -1030,11 +1073,11 @@ function advanceTurn(room) {
   if (able.length === 1 && able[0].currentBet >= room.currentBet) room.pendingActions.clear();
   if (!room.pendingActions.size) {
     room.currentTurnSeat = null;
-    clearTimeout(room.actionTimer);
-    clearTimeout(room.botTimer);
-    clearTimeout(room.streetTimer);
+    cancelTask(room.actionTimer);
+    cancelTask(room.botTimer);
+    cancelTask(room.streetTimer);
     broadcastRoom(room);
-    room.streetTimer = setTimeout(() => advanceStreet(room), getStreetPauseDelay(room.botSpeed));
+    room.streetTimer = scheduleTask(() => advanceStreet(room), getStreetPauseDelay(room.botSpeed));
     return;
   }
   let next = room.currentTurnSeat ?? room.dealerSeat;
@@ -1045,8 +1088,8 @@ function advanceTurn(room) {
   room.currentTurnSeat = next;
   room.statusMsg = 'Vez de ' + room.seats[next].name;
   broadcastRoom(room);
-  clearTimeout(room.actionTimer);
-  if (!room.seats[next].isBot) room.actionTimer = setTimeout(() => {
+  cancelTask(room.actionTimer);
+  if (!room.seats[next].isBot) room.actionTimer = scheduleTask(() => {
     if (room.currentTurnSeat === next) handlePlayerAction(room, next,
       room.seats[next].currentBet === room.currentBet ? 'check' : 'fold');
   }, 30000);
@@ -1134,9 +1177,9 @@ function awardPot(room, winner) {
 }
 
 function endHand(room) {
-  clearTimeout(room.streetTimer);
-  clearTimeout(room.botTimer);
-  clearTimeout(room.actionTimer);
+  cancelTask(room.streetTimer);
+  cancelTask(room.botTimer);
+  cancelTask(room.actionTimer);
   room.stage = 'showdown';
   room.currentTurnSeat = null;
   saveAccounts();
@@ -1145,8 +1188,8 @@ function endHand(room) {
 }
 
 function scheduleNextHand(room) {
-  clearTimeout(room.timer);
-  room.timer = setTimeout(() => {
+  cancelTask(room.timer);
+  room.timer = scheduleTask(() => {
     room.handInProgress = false;
     room.stage = 'waiting';
     for (let i = 0; i < NUM_SEATS; i++) {
@@ -1193,10 +1236,10 @@ function triggerBotTurnIfNeeded(room) {
   const currentSeat = room.seats[room.currentTurnSeat];
   if (!currentSeat || !currentSeat.isBot) return;
 
-  clearTimeout(room.botTimer);
+  cancelTask(room.botTimer);
   const delay = getBotThinkingDelay(room.botSpeed);
 
-  room.botTimer = setTimeout(() => {
+  room.botTimer = scheduleTask(() => {
     if (room.currentTurnSeat === null) return;
     const bot = room.seats[room.currentTurnSeat];
     if (!bot || !bot.isBot) return;
@@ -1286,8 +1329,44 @@ function triggerBotTurnIfNeeded(room) {
   }, delay);
 }
 
-saveAccounts();
+function listen() {
+  storageReady = true;
+  server.listen(PORT, () => console.log('MAXpoker online; armazenamento: ' + (DATABASE_URL ? 'PostgreSQL' : 'arquivo local')));
+}
 
-server.listen(PORT, () => {
-  console.log(`♠ MAXpoker Server rodando em http://localhost:${PORT}`);
-});
+function stopForStorageFailure() {
+  storageReady = false;
+  deliveries = null;
+  // Do not log connection strings, account contents or driver errors containing credentials.
+  console.error('Persistência indisponível. Operação não confirmada; servidor será reiniciado.');
+  for (const ws of clients.keys()) ws.terminate();
+  process.exit(1);
+}
+
+async function startDatabase() {
+  const { createPostgresStore, createDurableQueue } = require('./lib/postgres-store');
+  databaseStore = createPostgresStore(DATABASE_URL, { onError: stopForStorageFailure });
+  // Explicit opt-in import. Never silently resurrect stale accounts from Git.
+  const seed = process.env.IMPORT_ACCOUNTS_FILE
+    ? JSON.parse(fs.readFileSync(process.env.IMPORT_ACCOUNTS_FILE, 'utf8')) : {};
+  Object.assign(accounts, normalizeAccounts(await databaseStore.load(seed)));
+  saveAccounts();
+  await databaseStore.save(accounts);
+  databaseDirty = false;
+  durableQueue = createDurableQueue({
+    begin: () => { deliveries = []; },
+    commit: async () => {
+      if (databaseDirty) { await databaseStore.save(accounts); databaseDirty = false; }
+    },
+    publish: () => {
+      const messages = deliveries;
+      deliveries = null;
+      for (const [ws, json] of messages) if (ws.readyState === ws.OPEN) ws.send(json);
+    },
+    fail: stopForStorageFailure
+  });
+  listen();
+}
+
+if (DATABASE_URL) startDatabase().catch(stopForStorageFailure);
+else { saveAccounts(); listen(); }

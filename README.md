@@ -1,7 +1,7 @@
 # MAXpoker
 
 Texas Hold'em com fichas virtuais, contas locais, mesas de seis lugares e bots.
-Versão 1.3.0.
+Versão 1.4.0.
 
 ## Executar
 
@@ -40,13 +40,36 @@ npm start
 - Sem recompra automática: ao ficar sem fichas, o jogador volta ao lobby.
 - Reinício: a mão interrompida é cancelada; stack e contribuição ainda pendente são restituídos.
 
-## Dados e operação
+## Banco persistente em produção
 
-accounts.json contém contas e hashes de senha. Preserve o arquivo e mantenha backups.
-ACCOUNTS_FILE permite escolher outro caminho, inclusive um volume persistente da hospedagem.
-A gravação usa arquivo temporário e renomeação; erros de leitura impedem iniciar com um banco vazio.
-Use apenas um processo do servidor por arquivo de contas. Mesas e sessões ficam em memória.
-O servidor local usa HTTP; HTTPS/WSS deve ser configurado na hospedagem ou proxy.
+Configure DATABASE_URL no ambiente do Render com uma conexão PostgreSQL.
+O servidor no Render recusa iniciar sem essa variável, para impedir novas contas no disco temporário.
+A senha de conexão deve ficar apenas nas variáveis do serviço; nunca no Git ou no JavaScript do navegador.
+
+O esquema é criado automaticamente no banco. A tabela maxpoker_state mantém um snapshot JSONB
+atômico de contas, carteiras e reservas das mesas, com revisão para impedir sobrescrita por um processo antigo.
+Cadastros, bônus e ações só são confirmados ao cliente depois da gravação no PostgreSQL.
+Uma falha de gravação interrompe o servidor; ele não continua usando um arquivo local como alternativa.
+
+O banco começa vazio por padrão. Para importar um backup existente uma única vez, configure
+IMPORT_ACCOUNTS_FILE com o caminho do JSON. A importação só ocorre se o snapshot ainda não existir;
+reinícios posteriores ignoram o arquivo. Um banco já inicializado nunca é substituído por esse backup.
+Contas que já desapareceram do disco do Render não podem ser recuperadas sem cópia.
+
+Em desenvolvimento local sem DATABASE_URL, accounts.json continua disponível.
+ACCOUNTS_FILE permite escolher outro arquivo. Preserve esse arquivo e não use contas reais em testes.
+
+GET /healthz retorna o estado de prontidão e o tipo de armazenamento, sem credenciais.
+Para executar também o teste contra um PostgreSQL de teste, defina TEST_DATABASE_URL e rode npm test.
+Esse usuário precisa poder criar e remover bancos de teste; não aponte para produção.
+O teste cria um banco separado, verifica cadastro, bônus, buy-in e dois reinícios e remove apenas esse banco.
+
+Use um único processo ativo por banco. Durante um deploy, a revisão do snapshot impede o servidor
+antigo de sobrescrever dados após o novo assumir. Mesas e tokens permanecem em memória: uma mão
+interrompida é cancelada, sua reserva é restituída uma única vez e é necessário fazer login novamente.
+Mantenha backups do banco e acompanhe os limites do provedor escolhido.
+
+O servidor local usa HTTP; HTTPS/WSS é fornecido pela hospedagem ou proxy.
 Não há pagamentos ou saques de dinheiro real.
 
-Consulte DOSSIE_MAXPOKER.md para arquitetura, regras e limitações.
+Consulte DOSSIE_MAXPOKER.md para regras e limitações.
