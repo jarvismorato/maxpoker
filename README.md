@@ -1,32 +1,52 @@
-# ♠ MAXpoker - Texas Hold'em Online & Bots
+# MAXpoker
 
-Aplicativo moderno de Poker Texas Hold'em inspirado nas melhores plataformas de poker online, com **sistema de contas**, **carteira de fichas persistente**, **Lobby moderno** e **entrada instantânea nas mesas**.
+Texas Hold'em com fichas virtuais, contas locais, mesas de seis lugares e bots.
+Versão 1.3.0.
 
-## 🌟 O Que Há de Novo
+## Executar
 
-1. **Sistema de Contas & Saldo de Fichas (Bankroll)**:
-   - Cada jogador tem sua conta com perfil, avatar personalizado e saldo total de fichas persistido em `accounts.json`.
-   - **Buy-in Inteligente**: Ao entrar em uma mesa, o valor do Buy-in é transferido do saldo da sua conta para a sua pilha na mesa.
-   - **Retorno de Lucro**: Ao sair da mesa ou voltar ao menu, todas as fichas ganhas voltam automaticamente para o saldo da sua conta!
-   - **🎁 Bônus Grátis**: Botão no topo do Lobby para resgatar +$2.500 fichas a qualquer momento.
-   - **Gerenciador de Contas**: Troque de conta ou crie novas com nomes e avatares personalizados (🦁, 🦈, 👑, 🐺, 🎩, 🤖, 🐯, 🦅).
+Requer Node.js 18 ou superior e npm. Na pasta do projeto:
 
-2. **Entrada Instantânea nas Mesas (Auto-Sit)**:
-   - Chega de ficar apenas assistindo ou travado sem assento:
-   - Ao clicar em **"⚡ JOGAR AGORA"** ou **"JOGAR NESSA MESA"**, você **já entra sentado diretamente na mesa** (no assento principal), substituindo qualquer bot e pronto para jogar imediatamente!
+```powershell
+npm ci
+npm start
+```
 
-3. **Lobby / Menu Principal Moderno**:
-   - Barra superior com card de perfil e saldo em destaque.
-   - Banner Hero com estatísticas da conta (Mãos Jogadas, Vitórias, Saldo Total).
-   - Grade de mesas disponíveis com filtros de dificuldade, velocidade e blinds.
-   - Modais escuros elegantes para criar mesas e trocar de contas sem poluir a tela.
+Abra http://localhost:3000. A variável PORT permite escolher outra porta.
 
-4. **Velocidade dos Bots Ajustável**:
-   - 🐢 **Calmo (2.2s a 3.2s)**: Ritmo com tempo para ler as ações e ver as cartas comunitárias.
-   - ⚖️ **Normal (~1.8s)**: Ritmo padrão de poker online.
-   - ⚡ **Rápido (~0.8s)**: Ação acelerada.
+## Testar
 
-## 🚀 Como Jogar
+```powershell
+npm test
+```
 
-Acesse diretamente no navegador:
-👉 **[http://localhost:3000](http://localhost:3000)**
+Os testes usam contas e temporizadores isolados: não modificam accounts.json.
+Para executar manualmente com contas de teste:
+
+```powershell
+$env:ACCOUNTS_FILE = Join-Path $env:TEMP 'maxpoker-test-accounts.json'
+$env:PORT = '3107'
+npm start
+```
+
+## Comportamento
+
+- Cadastro: 50.000 fichas; bônus: 10.000 a cada quatro horas.
+- Blinds fixos: 100/200. Mesas personalizadas exigem buy-in mínimo de 2.000.
+- Entrada apenas entre mãos, sem substituir um bot que está jogando.
+- All-ins, potes laterais e divisão de fichas inteiras; raise mínimo validado pelo servidor.
+- Turno humano: 30 segundos, seguido de check quando possível ou fold.
+- Desconexão: reserva de 30 segundos para recuperar o mesmo assento.
+- Sem recompra automática: ao ficar sem fichas, o jogador volta ao lobby.
+- Reinício: a mão interrompida é cancelada; stack e contribuição ainda pendente são restituídos.
+
+## Dados e operação
+
+accounts.json contém contas e hashes de senha. Preserve o arquivo e mantenha backups.
+ACCOUNTS_FILE permite escolher outro caminho, inclusive um volume persistente da hospedagem.
+A gravação usa arquivo temporário e renomeação; erros de leitura impedem iniciar com um banco vazio.
+Use apenas um processo do servidor por arquivo de contas. Mesas e sessões ficam em memória.
+O servidor local usa HTTP; HTTPS/WSS deve ser configurado na hospedagem ou proxy.
+Não há pagamentos ou saques de dinheiro real.
+
+Consulte DOSSIE_MAXPOKER.md para arquitetura, regras e limitações.

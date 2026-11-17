@@ -6,7 +6,7 @@ const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const ACCOUNTS_FILE = path.join(__dirname, 'accounts.json');
+const ACCOUNTS_FILE = process.env.ACCOUNTS_FILE || path.join(__dirname, 'accounts.json');
 
 // Regras de Fichas
 const DEFAULT_START_CHIPS = 50000; // Contas normais começam com 50.000
@@ -25,50 +25,46 @@ function loadAccounts() {
   try {
     if (fs.existsSync(ACCOUNTS_FILE)) {
       const data = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, 'utf8'));
-      const normalized = {};
+      const normalized = Object.create(null);
       for (const [key, acc] of Object.entries(data)) {
         const lowerKey = key.toLowerCase();
-        if (!acc.salt) {
-          acc.salt = crypto.randomBytes(16).toString('hex');
-          acc.passwordHash = hashPassword('123456', acc.salt);
+        if (!acc || typeof acc !== 'object' || !acc.salt || !acc.passwordHash ||
+            !Number.isSafeInteger(acc.bankroll) || acc.bankroll < 0 ||
+            !Number.isSafeInteger(acc.tableEscrow ?? 0) || (acc.tableEscrow ?? 0) < 0 ||
+            !Number.isSafeInteger(acc.bankroll + (acc.tableEscrow ?? 0))) {
+          throw new Error('Registro de conta inválido: ' + lowerKey);
         }
         if (!acc.lastBonusClaim) acc.lastBonusClaim = 0;
 
-        // Se for a conta do usuário (Gabriel), garante as 100 bilhões de fichas
-        if (lowerKey === 'gabriel') {
-          acc.bankroll = USER_VIP_CHIPS;
-        }
+        acc.bankroll += acc.tableEscrow || 0;
+        acc.tableEscrow = 0;
 
         normalized[lowerKey] = acc;
       }
       return normalized;
     }
   } catch (e) {
-    console.error('Erro ao ler contas:', e);
+    throw new Error('Contas inválidas: inicialização cancelada para preservar dados.', { cause: e });
   }
 
-  const defaultAccounts = {};
-  const salt1 = crypto.randomBytes(16).toString('hex');
-  defaultAccounts['gabriel'] = {
-    username: 'Gabriel',
-    avatar: '🦁',
-    salt: salt1,
-    passwordHash: hashPassword('123456', salt1),
-    bankroll: USER_VIP_CHIPS,
-    lastBonusClaim: 0,
-    handsWon: 0,
-    handsPlayed: 0
-  };
-  return defaultAccounts;
+  return Object.create(null);
 }
 
 const accounts = loadAccounts();
 
 function saveAccounts() {
+  for (const acc of Object.values(accounts)) acc.tableEscrow = 0;
+  for (const room of rooms.values()) for (const seat of room.seats) {
+    if (!seat || seat.isBot || seat.departed) continue;
+    const acc = accounts[seat.username.toLowerCase()];
+    if (acc) acc.tableEscrow += seat.chips + (seat.totalBet || 0);
+  }
   try {
-    fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Erro ao salvar contas:', e);
+    fs.writeFileSync(ACCOUNTS_FILE + '.tmp', JSON.stringify(accounts, null, 2), 'utf8');
+    fs.renameSync(ACCOUNTS_FILE + '.tmp', ACCOUNTS_FILE);
+  } catch (error) {
+    console.error('Falha ao persistir fichas. Servidor interrompido; o último snapshot será recuperado.', error);
+    process.exit(1);
   }
 }
 
@@ -89,7 +85,11 @@ const MIME_TYPES = {
 
 const server = http.createServer((req, res) => {
   let reqPath = req.url === '/' ? '/index.html' : req.url;
-  const filePath = path.join(PUBLIC_DIR, reqPath);
+  let pathname;
+  try { pathname = decodeURIComponent(new URL(reqPath, 'http://localhost').pathname); }
+  catch { res.writeHead(400); res.end(); return; }
+  const filePath = path.resolve(PUBLIC_DIR, '.' + pathname);
+  if (!filePath.startsWith(PUBLIC_DIR + path.sep)) { res.writeHead(403); res.end(); return; }
 
   fs.readFile(filePath, (err, content) => {
     if (err) {
@@ -103,7 +103,7 @@ const server = http.createServer((req, res) => {
   });
 });
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, maxPayload: 16384 });
 
 // ==========================================
 // Baralho 100% Aleatório (Criptograficamente Seguro)
@@ -348,11 +348,13 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     const client = clients.get(ws);
-    if (client && client.roomId) {
+    if (!client) return;
+    client.disconnected = true;
+    client.disconnectTimer = setTimeout(() => {
       leaveCurrentRoom(ws);
-    }
-    clients.delete(ws);
-    broadcastLobby();
+      clients.delete(ws);
+      broadcastLobby();
+    }, 30000);
   });
 });
 
@@ -413,6 +415,8 @@ function sitPlayerInRoom(room, client, targetSeatIndex = -1, requestedBuyIn = nu
   const acc = accounts[userKey];
   if (!acc) return { success: false, message: 'Conta não encontrada.' };
 
+  if (room.handInProgress) return { success: false, message: 'Mão em andamento. Aguarde o término para entrar.' };
+  if (client.seatIndex !== -1) return { success: false, message: 'Você já está sentado.' };
   const minB = room.minBuyIn;
   const maxB = room.maxBuyIn;
 
@@ -421,14 +425,12 @@ function sitPlayerInRoom(room, client, targetSeatIndex = -1, requestedBuyIn = nu
   }
 
   let buyIn = requestedBuyIn !== null ? Number(requestedBuyIn) : room.defaultBuyIn;
-  buyIn = Math.max(minB, Math.min(buyIn, maxB, acc.bankroll));
+  if (!Number.isSafeInteger(buyIn) || buyIn < minB || buyIn > maxB || buyIn > acc.bankroll)
+    return { success: false, message: 'Buy-in inválido ou saldo insuficiente.' };
 
-  // Se já estava em outro assento, devolve as fichas
-  if (client.seatIndex !== -1 && room.seats[client.seatIndex]?.id === client.id) {
-    acc.bankroll += room.seats[client.seatIndex].chips;
-    room.seats[client.seatIndex] = null;
-  }
 
+
+  if (!Number.isInteger(targetSeatIndex)) return { success: false, message: 'Assento inválido.' };
   let seatIdx = targetSeatIndex;
   if (seatIdx < 0 || seatIdx >= NUM_SEATS || (room.seats[seatIdx] && !room.seats[seatIdx].isBot)) {
     if (!room.seats[0] || room.seats[0].isBot) {
@@ -449,7 +451,6 @@ function sitPlayerInRoom(room, client, targetSeatIndex = -1, requestedBuyIn = nu
   }
 
   acc.bankroll -= buyIn;
-  saveAccounts();
 
   client.seatIndex = seatIdx;
   room.seats[seatIdx] = {
@@ -466,50 +467,76 @@ function sitPlayerInRoom(room, client, targetSeatIndex = -1, requestedBuyIn = nu
     lastAction: ''
   };
 
+  saveAccounts();
   return { success: true, seatIndex: seatIdx, buyIn };
 }
 
 function leaveCurrentRoom(ws) {
   const client = clients.get(ws);
   if (!client || !client.roomId) return;
-
   const room = rooms.get(client.roomId);
-  if (room) {
-    if (client.seatIndex !== -1 && room.seats[client.seatIndex]?.id === client.id) {
-      const seat = room.seats[client.seatIndex];
-      const acc = accounts[client.username.toLowerCase()];
-      if (acc) {
-        acc.bankroll += seat.chips;
-        saveAccounts();
-        sendToClient(ws, { type: 'accountUpdate', account: sanitizeAccount(acc) });
-      }
-
-      room.seats[client.seatIndex] = null;
-      broadcastRoom(room, `${seat.name} saiu da mesa com $${seat.chips.toLocaleString('pt-BR')} fichas.`);
+  const seat = room?.seats[client.seatIndex];
+  if (seat?.id === client.id) {
+    const acc = accounts[seat.username.toLowerCase()];
+    acc.bankroll += seat.chips;
+    seat.chips = 0;
+    seat.departed = true;
+    seat.folded = true;
+    seat.cards = [];
+    if (!room.handInProgress || room.stage === 'showdown') room.seats[client.seatIndex] = null;
+    else {
+      room.pendingActions?.delete(client.seatIndex);
       checkGameContinuation(room);
     }
+    saveAccounts();
+    sendToClient(ws, { type: 'accountUpdate', account: sanitizeAccount(acc) });
+    broadcastRoom(room);
   }
-
   client.roomId = null;
   client.seatIndex = -1;
   broadcastLobby();
 }
 
+function attachAccount(ws, key) {
+  const client = clients.get(ws);
+  for (const [oldWs, old] of clients) {
+    if (oldWs === ws || old.username?.toLowerCase() !== key) continue;
+    if (!old.disconnected) {
+      sendToClient(ws, { type: 'authError', message: 'Esta conta já está conectada em outra aba.' });
+      return false;
+    }
+    clearTimeout(old.disconnectTimer);
+    Object.assign(client, { id: old.id, roomId: old.roomId, seatIndex: old.seatIndex });
+    clients.delete(oldWs);
+  }
+  client.username = accounts[key].username;
+  return true;
+}
+
+function sendRestoredRoom(ws) {
+  const client = clients.get(ws);
+  sendToClient(ws, { type: 'init', clientId: client.id, rooms: getRoomsSummary() });
+  if (client.roomId) sendToClient(ws, { type: 'joinedRoom', roomId: client.roomId,
+    table: getSanitizedTable(rooms.get(client.roomId), client.id) });
+}
+
 function handleClientMessage(ws, msg) {
   const client = clients.get(ws);
-  if (!client) return;
+  if (!client || !msg || typeof msg !== 'object') return;
+  if (['register', 'login', 'tokenAuth'].includes(msg.type) && client.username) return;
+  if (!['register', 'login', 'tokenAuth'].includes(msg.type) && !client.username) return;
 
   // 1. Cadastrar Conta (Username + Senha)
   if (msg.type === 'register') {
-    const rawUser = (msg.username || '').trim();
-    const rawPass = (msg.password || '').trim();
-    const avatar = msg.avatar || '🦁';
+    const rawUser = (typeof msg.username === 'string' ? msg.username : '').trim();
+    const rawPass = (typeof msg.password === 'string' ? msg.password : '').trim();
+    const avatar = typeof msg.avatar === 'string' && msg.avatar.length <= 100 ? msg.avatar : '🦁';
 
-    if (rawUser.length < 3) {
+    if (rawUser.length < 3 || rawUser.length > 30) {
       sendToClient(ws, { type: 'authError', message: 'O nome de usuário deve ter pelo menos 3 caracteres.' });
       return;
     }
-    if (rawPass.length < 4) {
+    if (rawPass.length < 4 || rawPass.length > 128) {
       sendToClient(ws, { type: 'authError', message: 'A senha deve ter pelo menos 4 caracteres.' });
       return;
     }
@@ -552,8 +579,8 @@ function handleClientMessage(ws, msg) {
 
   // 2. Login com Senha
   else if (msg.type === 'login') {
-    const rawUser = (msg.username || '').trim();
-    const rawPass = (msg.password || '').trim();
+    const rawUser = (typeof msg.username === 'string' ? msg.username : '').trim();
+    const rawPass = (typeof msg.password === 'string' ? msg.password : '').trim();
     const key = rawUser.toLowerCase();
     const acc = accounts[key];
 
@@ -568,11 +595,7 @@ function handleClientMessage(ws, msg) {
       return;
     }
 
-    // Garante que se for a conta Gabriel, mantém as 100 bilhões
-    if (key === 'gabriel' && acc.bankroll < USER_VIP_CHIPS) {
-      acc.bankroll = USER_VIP_CHIPS;
-      saveAccounts();
-    }
+    if (!attachAccount(ws, key)) return;
 
     const token = crypto.randomBytes(24).toString('hex');
     sessionTokens.set(token, key);
@@ -583,6 +606,7 @@ function handleClientMessage(ws, msg) {
       token,
       account: sanitizeAccount(acc)
     });
+    sendRestoredRoom(ws);
     broadcastLobby();
   }
 
@@ -591,12 +615,13 @@ function handleClientMessage(ws, msg) {
     const key = sessionTokens.get(msg.token);
     if (key && accounts[key]) {
       const acc = accounts[key];
-      client.username = acc.username;
+      if (!attachAccount(ws, key)) return;
       sendToClient(ws, {
         type: 'authSuccess',
         token: msg.token,
         account: sanitizeAccount(acc)
       });
+      sendRestoredRoom(ws);
     } else {
       sendToClient(ws, { type: 'tokenExpired' });
     }
@@ -605,6 +630,7 @@ function handleClientMessage(ws, msg) {
   // 4. Logout
   else if (msg.type === 'logout') {
     if (client.roomId) leaveCurrentRoom(ws);
+    for (const [token, key] of sessionTokens) if (key === client.username?.toLowerCase()) sessionTokens.delete(token);
     client.username = null;
     sendToClient(ws, { type: 'loggedOut' });
   }
@@ -620,7 +646,7 @@ function handleClientMessage(ws, msg) {
     const lastClaim = acc.lastBonusClaim || 0;
     const elapsed = now - lastClaim;
 
-    if (elapsed < BONUS_COOLDOWN_MS && acc.bankroll >= 2000) {
+    if (elapsed < BONUS_COOLDOWN_MS) {
       const waitMinutes = Math.ceil((BONUS_COOLDOWN_MS - elapsed) / 60000);
       sendToClient(ws, {
         type: 'alert',
@@ -645,12 +671,19 @@ function handleClientMessage(ws, msg) {
 
   // 6. Criar Mesa com Buy-in Ajustável
   else if (msg.type === 'createRoom') {
-    const minB = Math.max(BIG_BLIND * 10, Number(msg.minBuyIn) || 4000);
-    const maxB = Math.max(minB * 2, Number(msg.maxBuyIn) || 50000);
-    const defB = Math.min(maxB, Math.max(minB, Number(msg.defaultBuyIn) || (minB + maxB) / 2));
+    if (!['easy', 'medium', 'hard'].includes(msg.botDifficulty) || !['slow', 'normal', 'fast'].includes(msg.botSpeed)) {
+      sendToClient(ws, { type: 'alert', message: 'Dificuldade ou velocidade inválida.' });
+      return;
+    }
+    const minB = Number(msg.minBuyIn), maxB = Number(msg.maxBuyIn), defB = Number(msg.defaultBuyIn);
+    if (![minB, maxB, defB].every(Number.isSafeInteger) || minB < BIG_BLIND * 10 ||
+        maxB < minB || maxB > 1000000000 || defB < minB || defB > maxB) {
+      sendToClient(ws, { type: 'alert', message: 'Limites inválidos: mínimo 2.000; buy-in padrão dentro dos limites.' });
+      return;
+    }
 
     const newRoom = createRoom({
-      name: msg.name || 'Mesa MAXpoker',
+      name: typeof msg.name === 'string' ? msg.name.slice(0, 80) : 'Mesa MAXpoker',
       botDifficulty: msg.botDifficulty || 'medium',
       botSpeed: msg.botSpeed || 'normal',
       autoFillBots: !!msg.autoFillBots,
@@ -664,7 +697,7 @@ function handleClientMessage(ws, msg) {
 
   // 7. Entrar na Mesa com Buy-in
   else if (msg.type === 'joinRoom') {
-    joinRoom(ws, msg.roomId, Number(msg.buyInAmount));
+    joinRoom(ws, msg.roomId, msg.buyInAmount == null ? null : Number(msg.buyInAmount));
   }
 
   // 8. Sair da Mesa
@@ -702,7 +735,10 @@ function handleClientMessage(ws, msg) {
     if (!client.roomId) return;
     const room = rooms.get(client.roomId);
     if (room && room.currentTurnSeat === client.seatIndex) {
-      handlePlayerAction(room, client.seatIndex, msg.action, msg.amount);
+      if (!handlePlayerAction(room, client.seatIndex, msg.action, msg.amount)) {
+        sendToClient(ws, { type: 'alert', message: 'Ação inválida. Confira o valor e sua vez.' });
+        sendToClient(ws, { type: 'tableUpdate', table: getSanitizedTable(room, client.id) });
+      }
     }
   }
 }
@@ -717,7 +753,7 @@ function joinRoom(ws, roomId, buyInAmount = null) {
     return;
   }
 
-  client.roomId = roomId;
+  if (client.roomId) { sendToClient(ws, { type: 'alert', message: 'Saia da mesa atual primeiro.' }); return; }
 
   const sitRes = sitPlayerInRoom(room, client, -1, buyInAmount);
   if (!sitRes.success) {
@@ -725,6 +761,7 @@ function joinRoom(ws, roomId, buyInAmount = null) {
     return;
   }
 
+  client.roomId = roomId;
   sendToClient(ws, {
     type: 'joinedRoom',
     roomId: room.id,
@@ -788,6 +825,7 @@ function getSanitizedTable(room, clientId) {
       currentBet: seat.currentBet,
       folded: seat.folded,
       isAllIn: seat.isAllIn,
+      canRaise: seat.actedAtBet == null || room.currentBet - seat.actedAtBet >= room.minRaise,
       lastAction: seat.lastAction,
       cards: seat.cards.map(c => {
         if (seat.folded) return { hidden: true };
@@ -814,6 +852,8 @@ function getSanitizedTable(room, clientId) {
     currentTurnSeat: room.currentTurnSeat,
     currentBet: room.currentBet,
     minRaise: room.minRaise,
+    smallBlind: SMALL_BLIND,
+    bigBlind: BIG_BLIND,
     handInProgress: room.handInProgress,
     statusMsg: room.statusMsg,
     lastWinners: room.lastWinners || null
@@ -879,19 +919,20 @@ function checkGameStart(room) {
 }
 
 function checkGameContinuation(room) {
-  const active = room.seats.filter(s => s && s.chips > 0 && !s.folded);
-  if (active.length < 2 && room.handInProgress) {
-    if (active.length === 1) {
-      awardPot(room, active[0]);
-    } else {
-      endHand(room);
-    }
-  } else if (!room.handInProgress) {
-    checkGameStart(room);
+  if (room.handInProgress && room.stage !== 'showdown') {
+    if (contenders(room).length <= 1 || room.seats[room.currentTurnSeat]?.departed) advanceTurn(room);
   }
+  else if (!room.handInProgress) checkGameStart(room);
+}
+
+function contenders(room) {
+  return room.seats.filter(s => s && !s.folded && s.cards.length === 2);
 }
 
 function startNewHand(room) {
+  if (getSeatedPlayers(room).length < 2) return;
+  clearTimeout(room.streetTimer);
+  clearTimeout(room.actionTimer);
   room.handInProgress = true;
   room.deck = createCryptoShuffledDeck();
   room.communityCards = [];
@@ -900,308 +941,205 @@ function startNewHand(room) {
   room.minRaise = BIG_BLIND;
   room.stage = 'preflop';
   room.lastWinners = null;
-
-  // Rotação visual do botão de Dealer "D"
-  const oldDealer = room.dealerSeat;
-  room.dealerSeat = (room.dealerSeat + 1) % NUM_SEATS;
-  while (!room.seats[room.dealerSeat] || room.seats[room.dealerSeat].chips <= 0) {
-    room.dealerSeat = (room.dealerSeat + 1) % NUM_SEATS;
-  }
-
-  const seated = getSeatedPlayers(room);
-  for (const s of seated) {
-    const seat = room.seats[s.seatIndex];
+  room.pendingActions = new Set();
+  for (let i = 0; i < NUM_SEATS; i++) {
+    const seat = room.seats[i];
+    if (!seat) continue;
+    Object.assign(seat, { cards: [], currentBet: 0, totalBet: 0, folded: true,
+      isAllIn: false, lastAction: '', actedAtBet: null });
+    if (seat.chips <= 0 || seat.departed) continue;
     seat.cards = [room.deck.pop(), room.deck.pop()];
-    seat.currentBet = 0;
     seat.folded = false;
-    seat.isAllIn = false;
-    seat.lastAction = '';
-
-    if (!seat.isBot && accounts[seat.username.toLowerCase()]) {
-      accounts[seat.username.toLowerCase()].handsPlayed++;
-    }
+    room.pendingActions.add(i);
+    if (!seat.isBot) accounts[seat.username.toLowerCase()].handsPlayed++;
   }
-  saveAccounts();
-
-  let sbSeat, bbSeat, firstActorSeat;
-  if (seated.length === 2) {
-    sbSeat = room.dealerSeat;
-    bbSeat = nextSeat(room, room.dealerSeat);
-    firstActorSeat = sbSeat;
-  } else {
-    sbSeat = nextSeat(room, room.dealerSeat);
-    bbSeat = nextSeat(room, sbSeat);
-    firstActorSeat = nextSeat(room, bbSeat);
-  }
-
-  postBet(room, sbSeat, SMALL_BLIND, `Small Blind ($${SMALL_BLIND})`);
-  postBet(room, bbSeat, BIG_BLIND, `Big Blind ($${BIG_BLIND})`);
+  room.dealerSeat = nextSeat(room, room.dealerSeat);
+  const sb = room.pendingActions.size === 2 ? room.dealerSeat : nextSeat(room, room.dealerSeat);
+  const bb = nextSeat(room, sb);
+  postBet(room, sb, SMALL_BLIND, 'Small Blind');
+  postBet(room, bb, BIG_BLIND, 'Big Blind');
   room.currentBet = BIG_BLIND;
-
-  room.currentTurnSeat = firstActorSeat;
-  const dealerName = room.seats[room.dealerSeat]?.name || 'Jogador';
-  room.statusMsg = `🔄 Botão de Dealer com ${dealerName}. Vez de ${room.seats[firstActorSeat].name}!`;
-  broadcastRoom(room);
-
-  triggerBotTurnIfNeeded(room);
+  room.currentTurnSeat = bb;
+  saveAccounts();
+  advanceTurn(room);
 }
 
 function postBet(room, seatIdx, amount, actionName) {
   const seat = room.seats[seatIdx];
-  if (!seat) return;
   const actual = Math.min(seat.chips, amount);
   seat.chips -= actual;
   seat.currentBet += actual;
+  seat.totalBet = (seat.totalBet || 0) + actual;
   room.pot += actual;
-  if (seat.chips === 0) seat.isAllIn = true;
+  seat.isAllIn = seat.chips === 0;
   seat.lastAction = actionName;
 }
 
 function handlePlayerAction(room, seatIdx, action, raiseToAmount) {
   const seat = room.seats[seatIdx];
-  if (!seat || room.currentTurnSeat !== seatIdx) return;
-
-  const toCall = room.currentBet - seat.currentBet;
-
-  if (action === 'fold') {
+  if (!room.handInProgress || room.stage === 'showdown' || room.currentTurnSeat !== seatIdx ||
+      !seat || seat.folded || seat.isAllIn || !room.pendingActions?.has(seatIdx)) return false;
+  const toCall = Math.max(0, room.currentBet - seat.currentBet);
+  if (!['fold', 'check', 'call', 'raise'].includes(action)) return false;
+  if (action === 'check' && toCall > 0) return false;
+  if (action === 'raise') {
+    if (!Number.isSafeInteger(raiseToAmount) || raiseToAmount <= 0) return false;
+    const target = Math.min(raiseToAmount, seat.chips + seat.currentBet);
+    const increment = target - room.currentBet;
+    const allIn = target === seat.chips + seat.currentBet;
+    const canRaise = seat.actedAtBet == null || room.currentBet - seat.actedAtBet >= room.minRaise;
+    if (!canRaise || increment <= 0 || (increment < room.minRaise && !allIn)) return false;
+    const fullRaise = increment >= room.minRaise;
+    postBet(room, seatIdx, target - seat.currentBet, 'Raise $' + target.toLocaleString('pt-BR'));
+    room.currentBet = target;
+    if (fullRaise) room.minRaise = increment;
+    for (let i = 0; i < NUM_SEATS; i++) {
+      const other = room.seats[i];
+      if (i !== seatIdx && other && !other.folded && !other.isAllIn && other.cards.length === 2 &&
+          other.currentBet < room.currentBet) room.pendingActions.add(i);
+    }
+  } else if (action === 'fold') {
     seat.folded = true;
-    seat.lastAction = 'Fold';
     seat.cards = [];
-    broadcastRoom(room, `${seat.name} deu Fold.`);
-  } else if (action === 'check') {
-    if (toCall > 0) return;
-    seat.lastAction = 'Check';
-    broadcastRoom(room, `${seat.name} deu Check.`);
-  } else if (action === 'call') {
-    const pay = Math.min(toCall, seat.chips);
-    seat.chips -= pay;
-    seat.currentBet += pay;
-    room.pot += pay;
-    if (seat.chips === 0) seat.isAllIn = true;
-    seat.lastAction = `Call $${pay.toLocaleString('pt-BR')}`;
-    broadcastRoom(room, `${seat.name} pagou $${pay.toLocaleString('pt-BR')}.`);
-  } else if (action === 'raise') {
-    const targetTotal = Number(raiseToAmount) || (room.currentBet + room.minRaise);
-    const added = targetTotal - seat.currentBet;
-    const actualPay = Math.min(added, seat.chips);
-
-    seat.chips -= actualPay;
-    seat.currentBet += actualPay;
-    room.pot += actualPay;
-    if (seat.chips === 0) seat.isAllIn = true;
-
-    if (seat.currentBet > room.currentBet) {
-      room.minRaise = seat.currentBet - room.currentBet;
-      room.currentBet = seat.currentBet;
-    }
-    seat.lastAction = `Raise $${seat.currentBet.toLocaleString('pt-BR')}`;
-    broadcastRoom(room, `${seat.name} aumentou para $${seat.currentBet.toLocaleString('pt-BR')}.`);
+    seat.lastAction = 'Fold';
+  } else {
+    postBet(room, seatIdx, Math.min(toCall, seat.chips), toCall ? 'Call' : 'Check');
   }
-
-  const activeInHand = room.seats.filter(s => s && !s.folded && s.cards && s.cards.length > 0);
-  if (activeInHand.length <= 1) {
-    clearTimeout(room.streetTimer);
-    clearTimeout(room.botTimer);
-    if (activeInHand.length === 1) {
-      awardPot(room, activeInHand[0]);
-    } else {
-      endHand(room);
-    }
-    return;
-  }
-
+  clearTimeout(room.actionTimer);
+  clearTimeout(room.botTimer);
+  seat.actedAtBet = room.currentBet;
+  room.pendingActions.delete(seatIdx);
+  saveAccounts();
   advanceTurn(room);
+  return true;
 }
 
 function advanceTurn(room) {
-  const activeUnfolded = room.seats.filter(s => s && !s.folded && s.cards && s.cards.length > 0);
-  if (activeUnfolded.length <= 1) {
-    clearTimeout(room.streetTimer);
+  if (!room.handInProgress || room.stage === 'showdown') return;
+  const active = contenders(room);
+  if (active.length <= 1) {
+    if (active.length) awardPot(room, active[0]);
+    else finishAwards(room, new Map(room.seats.filter(s => s && s.totalBet > 0).map(s => [s, s.totalBet])));
+    return;
+  }
+  for (const i of room.pendingActions) {
+    const seat = room.seats[i];
+    if (!seat || seat.folded || seat.isAllIn || seat.cards.length !== 2) room.pendingActions.delete(i);
+  }
+  const able = active.filter(s => !s.isAllIn);
+  if (able.length === 1 && able[0].currentBet >= room.currentBet) room.pendingActions.clear();
+  if (!room.pendingActions.size) {
+    room.currentTurnSeat = null;
+    clearTimeout(room.actionTimer);
     clearTimeout(room.botTimer);
-    if (activeUnfolded.length === 1) {
-      awardPot(room, activeUnfolded[0]);
-    } else {
-      endHand(room);
-    }
-    return;
-  }
-
-  const eligibleToAct = activeUnfolded.filter(s => !s.isAllIn);
-  const betsEqual = activeUnfolded.every(s => s.isAllIn || s.currentBet === room.currentBet);
-  const allActed = activeUnfolded.every(s => s.lastAction !== '' || s.isAllIn);
-
-  if ((betsEqual && allActed) || eligibleToAct.length <= 1) {
-    // Pausa para ver o final da rodada de apostas
     clearTimeout(room.streetTimer);
-    const streetPause = getStreetPauseDelay(room.botSpeed);
-    room.streetTimer = setTimeout(() => {
-      advanceStreet(room);
-    }, streetPause);
+    broadcastRoom(room);
+    room.streetTimer = setTimeout(() => advanceStreet(room), getStreetPauseDelay(room.botSpeed));
     return;
   }
-
-  const next = nextSeat(room, room.currentTurnSeat);
+  let next = room.currentTurnSeat ?? room.dealerSeat;
+  for (let n = 0; n < NUM_SEATS; n++) {
+    next = (next + 1) % NUM_SEATS;
+    if (room.pendingActions.has(next)) break;
+  }
   room.currentTurnSeat = next;
-  room.statusMsg = `Vez de ${room.seats[next].name}...`;
+  room.statusMsg = 'Vez de ' + room.seats[next].name;
   broadcastRoom(room);
-
+  clearTimeout(room.actionTimer);
+  if (!room.seats[next].isBot) room.actionTimer = setTimeout(() => {
+    if (room.currentTurnSeat === next) handlePlayerAction(room, next,
+      room.seats[next].currentBet === room.currentBet ? 'check' : 'fold');
+  }, 30000);
   triggerBotTurnIfNeeded(room);
 }
 
 function advanceStreet(room) {
-  const activeInHand = room.seats.filter(s => s && !s.folded && s.cards && s.cards.length > 0);
-  if (activeInHand.length <= 1) {
-    clearTimeout(room.streetTimer);
-    clearTimeout(room.botTimer);
-    if (activeInHand.length === 1) {
-      awardPot(room, activeInHand[0]);
-    } else {
-      endHand(room);
-    }
-    return;
-  }
-
+  if (!room.handInProgress || room.stage === 'showdown') return;
+  if (contenders(room).length <= 1) { advanceTurn(room); return; }
+  if (room.stage === 'river') { resolveShowdown(room); return; }
+  room.pendingActions = new Set();
   for (let i = 0; i < NUM_SEATS; i++) {
-    if (room.seats[i]) {
-      room.seats[i].currentBet = 0;
-      if (!room.seats[i].folded) {
-        room.seats[i].lastAction = '';
-      }
-    }
+    const seat = room.seats[i];
+    if (!seat) continue;
+    seat.currentBet = 0;
+    seat.actedAtBet = null;
+    if (!seat.folded) seat.lastAction = '';
+    if (!seat.folded && !seat.isAllIn && seat.cards.length === 2) room.pendingActions.add(i);
   }
   room.currentBet = 0;
   room.minRaise = BIG_BLIND;
-
+  room.deck.pop();
   if (room.stage === 'preflop') {
     room.stage = 'flop';
-    room.deck.pop();
     room.communityCards.push(room.deck.pop(), room.deck.pop(), room.deck.pop());
-    room.statusMsg = '🃏 Flop na mesa!';
-  } else if (room.stage === 'flop') {
-    room.stage = 'turn';
-    room.deck.pop();
+  } else {
+    room.stage = room.stage === 'flop' ? 'turn' : 'river';
     room.communityCards.push(room.deck.pop());
-    room.statusMsg = '🃏 Turn na mesa!';
-  } else if (room.stage === 'turn') {
-    room.stage = 'river';
-    room.deck.pop();
-    room.communityCards.push(room.deck.pop());
-    room.statusMsg = '🃏 River na mesa!';
-  } else if (room.stage === 'river') {
-    resolveShowdown(room);
-    return;
   }
-
-  let firstActor = nextSeat(room, room.dealerSeat);
-  room.currentTurnSeat = firstActor;
-  broadcastRoom(room);
-
-  triggerBotTurnIfNeeded(room);
+  room.currentTurnSeat = room.dealerSeat;
+  saveAccounts();
+  advanceTurn(room);
 }
 
 function resolveShowdown(room) {
-  room.stage = 'showdown';
-  room.currentTurnSeat = null;
-
-  const contenders = room.seats
-    .map((s, idx) => (s ? { ...s, seatIndex: idx } : null))
-    .filter(s => s && s.id && !s.folded && s.cards && s.cards.length >= 2);
-
-  if (contenders.length === 0) {
-    endHand(room);
-    return;
-  }
-  if (contenders.length === 1) {
-    awardPot(room, contenders[0]);
-    return;
-  }
-
-  let bestScore = null;
-  let winners = [];
-
-  for (const p of contenders) {
-    const full7 = [...p.cards, ...room.communityCards];
-    const best = getBestHand(full7);
-    p.evaluated = best;
-
-    if (!bestScore) {
-      bestScore = best.score;
-      winners = [p];
-    } else {
-      const cmp = compareScores(best.score, bestScore);
-      if (cmp > 0) {
-        bestScore = best.score;
-        winners = [p];
-      } else if (cmp === 0) {
-        winners.push(p);
-      }
+  const players = contenders(room);
+  if (players.length === 1) { awardPot(room, players[0]); return; }
+  const levels = [...new Set(room.seats.filter(Boolean).map(s => s.totalBet || 0))].filter(n => n > 0).sort((a,b) => a-b);
+  const awards = new Map();
+  let previous = 0;
+  for (const level of levels) {
+    const contributors = room.seats.filter(s => s && s.totalBet >= level);
+    const amount = (level - previous) * contributors.length;
+    previous = level;
+    const eligible = players.filter(s => s.totalBet >= level);
+    if (!eligible.length) {
+      // Uncalled excess or an abandoned pot: return this layer to contributors.
+      for (const seat of contributors) awards.set(seat, (awards.get(seat) || 0) + amount / contributors.length);
+      continue;
     }
-  }
-
-  const potWon = room.pot;
-  if (winners.length === 1) {
-    const win = winners[0];
-    room.seats[win.seatIndex].chips += room.pot;
-    room.statusMsg = `🏆 ${win.name} venceu $${potWon.toLocaleString('pt-BR')} com ${win.evaluated.name}!`;
-
-    if (!win.isBot && accounts[win.username.toLowerCase()]) {
-      accounts[win.username.toLowerCase()].handsWon++;
-      saveAccounts();
+    let best = null, winners = [];
+    for (const seat of eligible) {
+      const hand = getBestHand([...seat.cards, ...room.communityCards]);
+      const cmp = best ? compareScores(hand.score, best) : 1;
+      if (cmp > 0) { best = hand.score; winners = [seat]; }
+      else if (cmp === 0) winners.push(seat);
+      seat.handName = hand.name;
     }
-    room.lastWinners = [{
-      seatIndex: win.seatIndex,
-      name: win.name,
-      amount: potWon,
-      handName: win.evaluated.name
-    }];
-  } else {
-    const share = Math.floor(room.pot / winners.length);
-    const names = winners.map(w => w.name).join(', ');
-    for (const w of winners) {
-      room.seats[w.seatIndex].chips += share;
-      if (!w.isBot && accounts[w.username.toLowerCase()]) {
-        accounts[w.username.toLowerCase()].handsWon++;
-      }
-    }
-    saveAccounts();
-    room.statusMsg = `🤝 Pote dividido entre ${names} ($${share.toLocaleString('pt-BR')} cada) com ${winners[0].evaluated.name}!`;
-    room.lastWinners = winners.map(w => ({
-      seatIndex: w.seatIndex,
-      name: w.name,
-      amount: share,
-      handName: w.evaluated.name
-    }));
+    winners.sort((a,b) => ((room.seats.indexOf(a)-room.dealerSeat+NUM_SEATS-1)%NUM_SEATS) - ((room.seats.indexOf(b)-room.dealerSeat+NUM_SEATS-1)%NUM_SEATS));
+    const share = Math.floor(amount / winners.length);
+    let remainder = amount % winners.length;
+    for (const seat of winners) awards.set(seat, (awards.get(seat) || 0) + share + (remainder-- > 0 ? 1 : 0));
   }
-
-  room.pot = 0;
-  broadcastRoom(room);
-  scheduleNextHand(room);
+  finishAwards(room, awards);
 }
 
-function awardPot(room, winner) {
-  const seatIdx = room.seats.findIndex(s => s?.id === winner.id);
-  const potWon = room.pot;
-  if (seatIdx !== -1) {
-    room.seats[seatIdx].chips += room.pot;
-    room.statusMsg = `🏆 ${winner.name} venceu $${potWon.toLocaleString('pt-BR')} (todos desistiram)!`;
-    if (!winner.isBot && accounts[winner.username.toLowerCase()]) {
-      accounts[winner.username.toLowerCase()].handsWon++;
-      saveAccounts();
+function finishAwards(room, awards) {
+  room.lastWinners = [];
+  for (const [seat, amount] of awards) {
+    if (seat.departed) accounts[seat.username.toLowerCase()].bankroll += amount;
+    else seat.chips += amount;
+    if (!seat.folded) {
+      if (!seat.isBot) accounts[seat.username.toLowerCase()].handsWon++;
+      room.lastWinners.push({ seatIndex: room.seats.indexOf(seat), name: seat.name, amount, handName: seat.handName || 'Todos deram fold' });
     }
-    room.lastWinners = [{
-      seatIndex: seatIdx,
-      name: winner.name,
-      amount: potWon,
-      handName: 'Todos deram fold'
-    }];
-    room.pot = 0;
   }
+  room.pot = 0;
+  for (const seat of room.seats) if (seat) seat.totalBet = 0;
+  room.statusMsg = room.lastWinners.map(w => w.name + ' ganhou $' + w.amount.toLocaleString('pt-BR')).join(' • ');
   endHand(room);
 }
 
+function awardPot(room, winner) {
+  finishAwards(room, new Map([[winner, room.pot]]));
+}
+
 function endHand(room) {
+  clearTimeout(room.streetTimer);
+  clearTimeout(room.botTimer);
+  clearTimeout(room.actionTimer);
   room.stage = 'showdown';
   room.currentTurnSeat = null;
+  saveAccounts();
   broadcastRoom(room);
   scheduleNextHand(room);
 }
@@ -1211,24 +1149,26 @@ function scheduleNextHand(room) {
   room.timer = setTimeout(() => {
     room.handInProgress = false;
     room.stage = 'waiting';
-
     for (let i = 0; i < NUM_SEATS; i++) {
-      if (room.seats[i] && room.seats[i].chips <= 0) {
-        if (room.seats[i].isBot) {
-          room.seats[i].chips = room.defaultBuyIn;
-        } else {
-          const acc = accounts[room.seats[i].username.toLowerCase()];
-          if (acc && acc.bankroll >= room.defaultBuyIn) {
-            acc.bankroll -= room.defaultBuyIn;
-            room.seats[i].chips = room.defaultBuyIn;
-            saveAccounts();
-          } else {
-            room.seats[i] = null;
+      const seat = room.seats[i];
+      if (!seat) continue;
+      if (seat.departed) room.seats[i] = null;
+      else if (seat.chips <= 0) {
+        if (seat.isBot) seat.chips = room.defaultBuyIn;
+        else {
+          room.seats[i] = null;
+          for (const [ws, client] of clients) if (client.id === seat.id) {
+            client.seatIndex = -1;
+            client.roomId = null;
+            sendToClient(ws, { type: 'leftRoom', rooms: getRoomsSummary(), account: sanitizeAccount(accounts[seat.username.toLowerCase()]) });
           }
         }
       }
     }
-    checkGameStart(room);
+    saveAccounts();
+    broadcastRoom(room);
+    broadcastLobby();
+    if (room.seats.some(s => s && !s.isBot)) checkGameStart(room);
   }, 4500);
 }
 
@@ -1242,6 +1182,10 @@ function getStreetPauseDelay(speed) {
   if (speed === 'slow') return 1800;
   if (speed === 'fast') return 800;
   return 1400;
+}
+
+function performBotAction(room, seatIdx, action, amount) {
+  if (!handlePlayerAction(room, seatIdx, action, amount)) handlePlayerAction(room, seatIdx, 'call');
 }
 
 function triggerBotTurnIfNeeded(room) {
@@ -1258,6 +1202,10 @@ function triggerBotTurnIfNeeded(room) {
     if (!bot || !bot.isBot) return;
 
     const toCall = room.currentBet - bot.currentBet;
+    if (bot.actedAtBet != null && room.currentBet - bot.actedAtBet < room.minRaise) {
+      performBotAction(room, room.currentTurnSeat, 'call');
+      return;
+    }
     const botFull = [...bot.cards, ...room.communityCards];
     const best = botFull.length >= 5 ? getBestHand(botFull) : null;
     const tier = best ? best.score[0] : 1;
@@ -1266,77 +1214,79 @@ function triggerBotTurnIfNeeded(room) {
     if (diff === 'easy') {
       if (toCall === 0) {
         if (tier >= 3 && Math.random() > 0.6) {
-          handlePlayerAction(room, room.currentTurnSeat, 'raise', room.currentBet + BIG_BLIND);
+          performBotAction(room, room.currentTurnSeat, 'raise', room.currentBet + room.minRaise);
         } else {
-          handlePlayerAction(room, room.currentTurnSeat, 'check');
+          performBotAction(room, room.currentTurnSeat, 'check');
         }
       } else {
         if (tier >= 2 && toCall <= BIG_BLIND * 2) {
-          handlePlayerAction(room, room.currentTurnSeat, 'call');
+          performBotAction(room, room.currentTurnSeat, 'call');
         } else if (tier >= 3) {
-          handlePlayerAction(room, room.currentTurnSeat, 'call');
+          performBotAction(room, room.currentTurnSeat, 'call');
         } else {
-          handlePlayerAction(room, room.currentTurnSeat, 'fold');
+          performBotAction(room, room.currentTurnSeat, 'fold');
         }
       }
     } else if (diff === 'hard') {
       if (toCall === 0) {
         if (tier >= 2 || Math.random() > 0.35) {
-          const raiseSize = room.currentBet + BIG_BLIND * (Math.random() > 0.5 ? 2 : 1);
-          handlePlayerAction(room, room.currentTurnSeat, 'raise', raiseSize);
+          const raiseSize = room.currentBet + room.minRaise * (Math.random() > 0.5 ? 2 : 1);
+          performBotAction(room, room.currentTurnSeat, 'raise', raiseSize);
         } else {
-          handlePlayerAction(room, room.currentTurnSeat, 'check');
+          performBotAction(room, room.currentTurnSeat, 'check');
         }
       } else {
         if (tier >= 3) {
           if (Math.random() > 0.45) {
-            handlePlayerAction(room, room.currentTurnSeat, 'raise', room.currentBet + BIG_BLIND * 3);
+            performBotAction(room, room.currentTurnSeat, 'raise', room.currentBet + room.minRaise * 3);
           } else {
-            handlePlayerAction(room, room.currentTurnSeat, 'call');
+            performBotAction(room, room.currentTurnSeat, 'call');
           }
         } else if (tier === 2) {
           if (Math.random() > 0.75) {
-            handlePlayerAction(room, room.currentTurnSeat, 'raise', room.currentBet + BIG_BLIND * 2);
+            performBotAction(room, room.currentTurnSeat, 'raise', room.currentBet + room.minRaise * 2);
           } else {
-            handlePlayerAction(room, room.currentTurnSeat, 'call');
+            performBotAction(room, room.currentTurnSeat, 'call');
           }
         } else {
           if (toCall <= BIG_BLIND && Math.random() > 0.5) {
-            handlePlayerAction(room, room.currentTurnSeat, 'call');
+            performBotAction(room, room.currentTurnSeat, 'call');
           } else if (Math.random() > 0.7) {
-            handlePlayerAction(room, room.currentTurnSeat, 'raise', room.currentBet + BIG_BLIND * 2);
+            performBotAction(room, room.currentTurnSeat, 'raise', room.currentBet + room.minRaise * 2);
           } else {
-            handlePlayerAction(room, room.currentTurnSeat, 'fold');
+            performBotAction(room, room.currentTurnSeat, 'fold');
           }
         }
       }
     } else {
       if (toCall === 0) {
         if (tier >= 2 && Math.random() > 0.4) {
-          handlePlayerAction(room, room.currentTurnSeat, 'raise', room.currentBet + BIG_BLIND);
+          performBotAction(room, room.currentTurnSeat, 'raise', room.currentBet + room.minRaise);
         } else {
-          handlePlayerAction(room, room.currentTurnSeat, 'check');
+          performBotAction(room, room.currentTurnSeat, 'check');
         }
       } else {
         if (tier >= 3) {
           if (Math.random() > 0.6 && room.stage !== 'river') {
-            handlePlayerAction(room, room.currentTurnSeat, 'raise', room.currentBet + BIG_BLIND * 2);
+            performBotAction(room, room.currentTurnSeat, 'raise', room.currentBet + room.minRaise * 2);
           } else {
-            handlePlayerAction(room, room.currentTurnSeat, 'call');
+            performBotAction(room, room.currentTurnSeat, 'call');
           }
         } else if (tier === 2) {
-          handlePlayerAction(room, room.currentTurnSeat, 'call');
+          performBotAction(room, room.currentTurnSeat, 'call');
         } else {
           if (toCall <= BIG_BLIND * 2 && Math.random() > 0.4) {
-            handlePlayerAction(room, room.currentTurnSeat, 'call');
+            performBotAction(room, room.currentTurnSeat, 'call');
           } else {
-            handlePlayerAction(room, room.currentTurnSeat, 'fold');
+            performBotAction(room, room.currentTurnSeat, 'fold');
           }
         }
       }
     }
   }, delay);
 }
+
+saveAccounts();
 
 server.listen(PORT, () => {
   console.log(`♠ MAXpoker Server rodando em http://localhost:${PORT}`);

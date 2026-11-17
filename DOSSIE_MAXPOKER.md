@@ -1,234 +1,114 @@
-# Dossiê Oficial do Projeto MAXpoker
+# Dossiê técnico do MAXpoker
 
-> **Data de Emissão:** 16 de Novembro de 2026  
-> **Versão do Sistema:** 1.2.0  
-> **URL de Produção:** [https://maxpoker.onrender.com](https://maxpoker.onrender.com)  
-> **Repositório Oficial:** [https://github.com/jarvismorato/maxpoker](https://github.com/jarvismorato/maxpoker)  
-> **Ambiente Local:** `C:\Users\gcava\.gemini\antigravity\scratch\simple-poker`
+Atualizado em 17 de novembro de 2026 · Versão 1.3.0
 
----
+## Objetivo e escopo
 
-## 1. Visão Geral e Objetivo
+Aplicação de Texas Hold'em No-Limit com fichas virtuais, jogadores humanos e bots.
+Esta documentação descreve o código local. A URL histórica de hospedagem é
+https://maxpoker.onrender.com; esta revisão não confirma o estado do deploy nem publica alterações.
+Repositório informado: https://github.com/jarvismorato/maxpoker.
 
-O **MAXpoker** é uma aplicação completa de **No-Limit Texas Hold'em Poker** multiplayer em tempo real, desenvolvida com foco em simplicidade arquitetural, desempenho nativo, justiça estatística e experiência de usuário imersiva. 
+## Arquitetura
 
-O sistema suporta tanto partidas contra **outros jogadores humanos conectados simultaneamente** quanto contra **Bots Inteligentes (IA)** com diferentes níveis de habilidade e ritmos de aposta, capazes de preencher automaticamente mesas vazias.
+- Node.js e módulos nativos http, fs, path e crypto.
+- WebSocket com a biblioteca ws; mensagens JSON e limite de 16 KiB por mensagem.
+- Interface HTML, CSS e JavaScript sem etapa de build; sons pela Web Audio API.
+- accounts.json para contas, saldos e reserva recuperável das fichas na mesa.
+- Mesas, baralho, temporizadores e tokens de sessão em memória de um único processo.
+- HTTPS/WSS depende do proxy/hospedagem. É proteção de transporte; não é criptografia ponta a ponta entre jogadores.
+- O script iniciar-cloudflare.ps1 é uma opção de túnel local, não uma dependência obrigatória da aplicação.
 
----
+## Arquivos
 
-## 2. Pilha Tecnológica (Tech Stack)
-
-Para garantir máxima portabilidade, facilidade de manutenção e zero dependências pesadas de *build* ou frameworks de terceiros, o projeto adota arquitetura **Vanilla**:
-
-```mermaid
-graph TD
-    Client["Frontend (HTML5 / Vanilla CSS / Vanilla JS)"]
-    Cloudflare["Cloudflare Edge Network / WSS / HTTPS"]
-    Render["Render Web Service (Linux Container)"]
-    NodeServer["Node.js Engine (server.js)"]
-    WS["WebSocket Server (ws library)"]
-    FS["Armazenamento JSON (accounts.json)"]
-
-    Client <-->|WSS / HTTPS| Cloudflare
-    Cloudflare <--> Render
-    Render <--> NodeServer
-    NodeServer --> WS
-    NodeServer --> FS
+```text
+server.js              Servidor, contas, regras e bots
+public/index.html      Login, lobby, mesa e modais
+public/style.css       Estilos e adaptação para telas pequenas
+public/client.js       WebSocket, interface, sons e ações
+accounts.json          Dados das contas; não usar em testes
+package.json           Versão, dependências e comandos
+package-lock.json      Versões de instalação
+README.md              Guia rápido
+test/poker.test.js     Testes isolados de regras e ciclo de vida
 ```
 
-- **Backend:** Node.js (v18+) utilizando módulos nativos (`http`, `crypto`, `fs`, `path`).
-- **Comunicação em Tempo Real:** Biblioteca leve e rápida [`ws`](https://www.npmjs.com/package/ws) via WebSockets (RFC 6455).
-- **Frontend:** HTML5 Semântico, CSS3 Moderno (Flexbox, CSS Grid, Animações 3D com aceleração por GPU), Vanilla JavaScript ES6+.
-- **Efeitos Sonoros:** Síntese em tempo real através da **Web Audio API** nativa dos navegadores (sem arquivos pesados de áudio).
-- **Hospedagem & Nuvem:** Render.com (Contêiner com deploy automático via Git), compatível com túneis Cloudflare (*cloudflared*).
+## Regras implementadas
 
----
+Mesas de até seis jogadores; blinds fixos de 100/200. O dealer gira entre participantes.
+Em heads-up, o dealer posta o small blind e age primeiro no preflop.
+O big blind mantém a opção de agir depois dos calls; postar blind não conta como ação voluntária.
 
-## 3. Arquitetura do Sistema e Estrutura de Diretórios
+Cada jogador recebe duas cartas. Há queima antes do flop, turn e river.
+O avaliador escolhe a melhor combinação de cinco entre as sete cartas, incluindo sequência A-2-3-4-5,
+desempates e empates. O embaralhamento usa Fisher-Yates com crypto.randomInt.
+Isso não constitui uma prova pública de distribuição nem uma auditoria independente de justiça.
 
-```
-simple-poker/
-├── server.js               # Núcleo do servidor: regras, IA, baralho, contas e WS
-├── accounts.json           # Banco de dados persistente de contas e saldos
-├── package.json            # Metadados do projeto e dependências (ws)
-├── package-lock.json       # Trava de versões de dependências
-├── .gitignore              # Arquivos ignorados pelo Git (node_modules, binários)
-├── iniciar-cloudflare.ps1  # Script PowerShell para túnel Cloudflare local
-├── cloudflared.exe         # Binário portátil do Cloudflare Tunnel
-├── DOSSIE_MAXPOKER.md      # Este documento completo de engenharia
-└── public/                 # Arquivos públicos servidos ao cliente
-    ├── index.html          # Estrutura das 3 telas: Login, Lobby e Mesa
-    ├── style.css           # Design sóbrio, matte, cartas de cassino e animações
-    └── client.js           # Gerenciamento de eventos WS, UI, sons e ações
-```
+As ações aceitas são fold, check, call e raise. O servidor valida turno, participação, saldo,
+inteiros seguros, aumento mínimo e direito de reabrir apostas. Um aumento all-in abaixo do mínimo
+não reabre automaticamente a ação de quem já agiu. Aumentos curtos acumulados podem reabrir a ação
+quando atingem o aumento mínimo em relação à última ação do participante.
 
----
+A contribuição total de cada jogador determina o pote principal e os potes laterais.
+Jogadores que deram fold não concorrem a vitórias. Excesso sem disputa pode ser devolvido;
+isto é restituição, não prêmio. Sobras inteiras em empates seguem a ordem à esquerda do dealer.
+Quando ninguém mais precisa agir, o board avança automaticamente até o showdown.
 
-## 4. Regras do Jogo e Motor de Poker
+O prazo humano é de 30 segundos: check se não há valor a pagar; caso contrário, fold.
+A entrada é recusada durante a mão; o jogador pode tentar novamente no intervalo entre mãos.
+Não há recompra automática de humanos. Jogadores sem fichas retornam ao lobby ao final da mão.
+Bots sem fichas recebem o buy-in padrão na preparação da próxima mão.
 
-O motor do jogo foi construído estritamente sob as regras oficiais de torneios e *cash games* do **Texas Hold'em No-Limit (NLHE)**:
+## Contas, fichas e recuperação
 
-### 4.1. Estrutura da Mão e Estágios
-1. **Preflop:** Dois blinds obrigatórios são postados (*Small Blind* e *Big Blind*). O baralho criptográfico é embaralhado e cada jogador ativo recebe 2 cartas de mão (*hole cards* viradas para baixo; o jogador vê as suas abertas).
-2. **Flop:** 3 cartas comunitárias abertas no feltro. Rodada de apostas iniciada pelo jogador à esquerda do botão de Dealer.
-3. **Turn:** 1 quarta carta comunitária revelada. Nova rodada de apostas.
-4. **River:** 1 quinta e última carta comunitária revelada. Rodada final de apostas.
-5. **Showdown:** Jogadores ativos que não deram fold revelam suas cartas. A melhor combinação de 5 cartas dentre as 7 disponíveis vence o pote.
+Contas novas recebem 50.000 fichas; bônus de 10.000 com intervalo obrigatório de quatro horas,
+independentemente do saldo. A configuração histórica de cadastro do nome Gabriel mantém o
+valor inicial especial de 100 bilhões, mas login e reinício não redefinem um saldo já existente.
+A aplicação não cria automaticamente uma conta com senha conhecida.
 
-### 4.2. Classificação Oficial de Mãos (Hierarquia de Força)
-O algoritmo `getBestHand()` avalia matematicamente todas as 21 combinações possíveis de 5 cartas extraídas das 7 (2 da mão + 5 da mesa) e determina os desempates via *kicker*:
+O buy-in deve ser um inteiro dentro dos limites da mesa e do saldo disponível. Para mesas novas,
+o mínimo é 2.000, o máximo deve ser pelo menos o mínimo e até 1 bilhão; o padrão deve estar nessa faixa.
 
-| Nível | Combinação | Descrição |
-| :---: | :--- | :--- |
-| **9** | **Straight Flush** | 5 cartas em sequência do mesmo naipe (inclui Royal Flush). |
-| **8** | **Four of a Kind (Quadra)** | 4 cartas de mesmo valor numérico. |
-| **7** | **Full House** | Uma trinca associada a um par. |
-| **6** | **Flush** | 5 cartas quaisquer do mesmo naipe. |
-| **5** | **Straight (Sequência)** | 5 cartas em ordem numérica consecutiva (Ás conta como 1 ou 14). |
-| **4** | **Three of a Kind (Trinca)** | 3 cartas de mesmo valor numérico. |
-| **3** | **Two Pair (Dois Pares)** | Dois pares de valores numéricos distintos. |
-| **2** | **One Pair (Um Par)** | Duas cartas de mesmo valor numérico. |
-| **1** | **High Card (Carta Alta)** | Maior carta individual para desempate. |
+Cada snapshot inclui a carteira e tableEscrow, que representa stack e contribuições ainda não liquidadas.
+O arquivo é gravado primeiro em .tmp e depois renomeado. Ao reiniciar, a reserva é creditada uma única vez,
+a mão interrompida é cancelada e as sessões precisam de novo login. Não é uma retomada da mão antiga.
+Dados malformados interrompem a inicialização para impedir substituição silenciosa de contas.
 
-### 4.3. Regra Inviolável de Desistência (Fold)
-- Ao selecionar **Fold**, as cartas do jogador são descartadas imediatamente do estado da mão (`seat.cards = []`).
-- O assento permanece marcado com o rótulo permanente `Fold` durante toda a mão.
-- Jogadores desistentes são **impossibilitados** de participar do *showdown*, de receber fichas ou de ser contemplados com o pote.
-- Se restar apenas 1 jogador que não desistiu, a mão encerra instantaneamente sem necessidade de abrir novas cartas comunitárias.
+Na saída voluntária, o stack retorna à carteira e a mão é abandonada; contribuições permanecem
+contabilizadas para os potes. Uma desconexão mantém identidade e assento por 30 segundos.
+A autenticação no período transfere o assento para a nova conexão. O relógio de ação continua correndo.
+Conexões simultâneas da mesma conta são recusadas. Logout invalida os tokens daquela conta.
 
----
+## Interface e protocolo
 
-## 5. Justiça Algorítmica e Baralho Criptográfico
+Mensagens principais do cliente: register, login, tokenAuth, logout, claimBonus, createRoom,
+joinRoom, sit, action e leaveRoom. O servidor responde com init, authSuccess, authError,
+tokenExpired, loggedOut, lobbyUpdate, joinedRoom, tableUpdate, accountUpdate, leftRoom e alert.
 
-Para garantir que a distribuição de cartas seja 100% neutra, imprevisível e imune a manipulações estatísticas:
-- O baralho é composto exatamente pelas 52 cartas padrão (4 naipes: ♠, ♥, ♦, ♣; 13 valores: 2 a Ás).
-- É utilizado o algoritmo de **Fisher-Yates** potencializado pelo gerador de números aleatórios criptográficos do sistema operacional (`crypto.randomInt` da biblioteca nativa `crypto` do Node.js), em vez do previsível `Math.random()`.
+Cartas adversárias ficam ocultas antes do showdown. Cartas descartadas por fold não são reveladas.
+Nomes de mesas, jogadores, avatares e rótulos de ação usam textContent na interface.
+Os blinds exibidos vêm de campos próprios, não do tamanho do último aumento.
+O slider aceita fichas inteiras, incluindo o valor exato de all-in.
+Há aviso de reconexão, controles de aposta desabilitados durante a queda e estilos para telas pequenas.
 
-```javascript
-function createCryptoShuffledDeck() {
-  const deck = [];
-  for (const s of SUITS) {
-    for (const r of RANKS) {
-      deck.push({ value: r.value, rank: r.label, label: r.label, suit: s.symbol, color: s.color });
-    }
-  }
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = crypto.randomInt(0, i + 1);
-    [deck[i], deck[j]] = [deck[j], deck[i]];
-  }
-  return deck;
-}
-```
+## Bots
 
----
+Os bots seguem heurísticas simples por categoria da mão e escolhas aleatórias, não um solver.
+Dificuldades aceitas: easy, medium e hard. Velocidades: slow, normal e fast.
+Tempos de decisão: lento 2,4–3,4 s; normal 1,8–2,6 s; rápido 0,9–1,3 s.
+Uma tentativa de aumento impossível é convertida em call, evitando travamento de um bot sem stack suficiente.
 
-## 6. Inteligência Artificial dos Bots
+## Operação, testes e limites
 
-O servidor conta com robôs autônomos com três perfis estratégicos distintos, capazes de simular o comportamento de jogadores reais:
+Na pasta do projeto, execute npm ci e npm start; padrão http://localhost:3000.
+PORT escolhe a porta; ACCOUNTS_FILE escolhe o caminho dos dados. npm test executa testes isolados
+com temporizadores controlados, sem acessar contas reais.
 
-```mermaid
-flowchart TD
-    BotTurn["Vez do Bot"] --> EvalHand["Avalia força da mão e custo de aposta (ToCall)"]
-    DiffCheck{"Dificuldade?"}
-    EvalHand --> DiffCheck
-    
-    DiffCheck -->|Fácil| Easy["Passivo: Dá Check frequente, Paga valores baixos, Fold em apostas altas"]
-    DiffCheck -->|Médio| Med["Sólido: Aposta com jogos fortes (Pares/Trincas), Blefa ocasionalmente (20%)"]
-    DiffCheck -->|Difícil| Hard["Agressivo: Dá Raise pré-flop, Explora potes, Blefe calculado (35-50%)"]
-    
-    Easy --> ActionExec["Executa Ação após Delay Natural (1.8s - 2.8s)"]
-    Med --> ActionExec
-    Hard --> ActionExec
-```
+A cobertura inclui valores inválidos, opção do big blind, all-in, potes laterais, fichas restantes,
+entrada durante mão, reinício, reconexão, saída e decisões de bots com pouco stack.
 
-- **Pausa Humana:** O bot não joga de forma instantânea. Um temporizador configurável (`getBotThinkingDelay`) faz com que o bot "pense" entre **0.9s e 2.8s**, permitindo que os jogadores humanos acompanhem a dinâmica da mesa sem sobrecarga visual.
-
----
-
-## 7. Economia de Fichas e Persistência de Contas
-
-### 7.1. Estrutura Financeira
-- **Novas Contas Cadastradas:** Iniciam automaticamente com **$50.000 fichas**.
-- **Bônus Periódico:** Um botão de resgate no cabeçalho concede **+$10.000 fichas** a cada **4 horas**. O servidor valida a estampa de tempo (`lastBonusClaim`), impedindo cliques repetidos ou alterações locais no navegador.
-- **Conta Especial (Gabriel):** Configurada com privilégios VIP de **100 bilhões de fichas** ($100.000.000.000).
-
-### 7.2. Buy-in Flexível e Ajustável
-- Ao clicar em uma mesa, o jogador visualiza um modal com controle deslizante (*slider*) para escolher exatamente com quantas fichas deseja entrar na partida, respeitando o mínimo e o máximo da mesa e o saldo da sua carteira.
-
-### 7.3. Ciclo de Vida e Salvamento de Fichas
-```mermaid
-sequenceDiagram
-    participant User as Jogador (Client)
-    participant Server as Servidor (server.js)
-    participant DB as accounts.json
-
-    User->>Server: joinRoom (Buy-in $5.000)
-    Server->>DB: Deduz $5.000 do Bankroll e Salva
-    Server->>User: Entra na mesa com stack de $5.000
-    Note over User,Server: Disputa de Mãos (Ganha ou perde potes)
-    User->>Server: leaveRoom (ou fecha aba com $12.000 em fichas)
-    Server->>DB: Credita $12.000 de volta ao Bankroll e Salva
-    Server->>User: accountUpdate (Saldo sincronizado)
-```
-
----
-
-## 8. Segurança e Protocolo WebSocket
-
-A troca de mensagens utiliza pacotes JSON bidirecionais com validação estrita no servidor:
-
-### Principais Tipos de Mensagens
-
-| Direção | Mensagem (`type`) | Carga Útil (*Payload*) | Descrição |
-| :--- | :--- | :--- | :--- |
-| **C ➔ S** | `register` | `{ username, password, avatar }` | Criação de conta com senha criptografada em SHA-256 + Salt. |
-| **C ➔ S** | `login` | `{ username, password }` | Autenticação por credenciais com retorno de token de sessão. |
-| **C ➔ S** | `tokenAuth` | `{ token }` | Reconexão automática ao recarregar a página sem reabrir formulário. |
-| **C ➔ S** | `joinRoom` | `{ roomId, buyInAmount }` | Entrada em mesa com buy-in personalizado. |
-| **C ➔ S** | `action` | `{ action: 'fold'/'call'/'raise', amount }` | Execução de jogada na vez do assento ativo. |
-| **C ➔ S** | `claimBonus` | `{}` | Reivindicação do bônus de 4 horas. |
-| **S ➔ C** | `init` | `{ clientId, rooms }` | Inicialização de conexão e lista de mesas. |
-| **S ➔ C** | `tableUpdate`| `{ table }` | Estado sanitizado da mesa (cartas adversárias mascaradas). |
-| **S ➔ C** | `accountUpdate`| `{ account }` | Atualização do saldo total do jogador. |
-
-> [!IMPORTANT]
-> **Prevenção de Trapaças (*Sanitized State*):** A função `getSanitizedTable` nunca envia as cartas secretas dos adversários pelo WebSocket. Os adversários recebem apenas `{ hidden: true }`. As cartas só são enviadas para todos no momento do *showdown* e apenas para os jogadores que **não** desistiram da mão.
-
----
-
-## 9. Design Visual e Experiência do Usuário (UI/UX)
-
-- **Estilo Sóbrio e Matte:** A interface descarta cores fluorescentes e adota um padrão de cassino escuro refinado (`#0b0e14` e `#141821`), com bordas sutis e tipografia nítida.
-- **Cartas Realistas:** Cartas brancas com textura plana, índices nos cantos opostos (com rotação de 180° no inferior direito) e naipes em vermelho escuro (`#b91c1c`) e carvão (`#18181b`).
-- **Animações Fluidas:**
-  - *dealSlideIn*: Animação de entrada suave das cartas ao serem distribuídas.
-  - *cardFlipAnim*: Efeito tridimensional de virada ao revelar Flop, Turn e River.
-  - *rotateDealerBtn*: Rotação de 360° do botão de Dealer ("D") ao mudar de assento.
-  - *winner-banner*: Efeito de descida suave com troféu e detalhes da combinação vencedora.
-- **Controles Intuitivos:** Botões de ação com peso visual equilibrado e slider com atalhos automáticos: *Mínimo*, *2x*, *3x*, *Pote* e *All-in*.
-
----
-
-## 10. Guia de Operação e Comandos Úteis
-
-### 10.1. Rodar Localmente
-```powershell
-cd C:\Users\gcava\.gemini\antigravity\scratch\simple-poker
-npm install
-node server.js
-```
-Acesse em: `http://localhost:3000`
-
-### 10.2. Atualizar em Produção (Render)
-Como o repositório está integrado por *Webhook* com o Render, qualquer atualização enviada para a branch `main` gera um deploy automático:
-```powershell
-git add .
-git commit -m "Descrição das melhorias"
-git push origin main
-```
-
----
-
-## 11. Conclusão
-
-O **MAXpoker** atinge maturidade técnica completa: roda em qualquer dispositivo moderno sem necessidade de download ou instalação, suporta partidas simultâneas globais via nuvem com criptografia de ponta a ponta e entrega uma jogabilidade fluida, segura e justa de poker.
+Use um volume persistente na hospedagem e backups externos. Um arquivo JSON não fornece coordenação
+entre múltiplos processos. Tokens não sobrevivem a reinícios. As senhas existentes usam SHA-256 com salt;
+uma migração para uma função dedicada de derivação de senhas permanece uma melhoria de segurança.
+Não há comprovação de prontidão para dinheiro real, auditoria de segurança completa nem teste de carga
+nesta revisão. Os testes descritos verificam cenários concretos, não todas as combinações possíveis.

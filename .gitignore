@@ -1,3 +1,7 @@
 node_modules/
 cloudflared.exe
 .git
+
+.playwright-cli/
+output/
+accounts.json.tmp

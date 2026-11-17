@@ -1274,3 +1274,46 @@ body {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
   z-index: 1000;
 }
+
+/* Connection feedback and small-screen table layout. */
+.connection-status { position: fixed; top: 0; left: 0; right: 0; z-index: 2000; padding: 12px; background: #78350f; color: white; text-align: center; }
+@media (max-width: 700px) {
+  body { padding: 6px; }
+  .stars-app { width: 100%; min-height: 100dvh; }
+  .lobby-topbar, .lobby-actions-bar, .table-overlay-header { flex-wrap: wrap; gap: 10px; }
+  .user-strip { flex-wrap: wrap; gap: 8px; }
+  .tables-grid { grid-template-columns: minmax(0, 1fr); }
+  .table-screen { height: auto; min-height: 100dvh; }
+  .table-info-tag { order: 3; width: 100%; font-size: 12px; }
+  .table-player-badge { font-size: 11px; }
+  .table-viewport { min-height: 570px; }
+  .poker-table-outer { height: 560px; padding: 5px; border-radius: 110px; }
+  .poker-table-felt { border-radius: 100px; }
+  .seat { width: 82px; }
+  .seat-0 { bottom: 8px; }
+  .seat-3 { top: 8px; }
+  .seat-1 { left: 3px; bottom: 95px; }
+  .seat-2 { left: 3px; top: 95px; }
+  .seat-4 { right: 3px; top: 95px; }
+  .seat-5 { right: 3px; bottom: 95px; }
+  .seat-name { font-size: 11px; }
+  .board-cards { gap: 3px; min-height: 60px; }
+  .seat .seat-bet-chip { top: -9px; right: -4px; bottom: auto; left: auto; font-size: 10px; }
+  .board-cards .poker-card { width: 40px; height: 60px; }
+  .table-ticker { max-width: 265px; font-size: 11px; }
+  .raise-slider-box { flex-direction: column; align-items: stretch; gap: 10px; }
+  .slider-presets { justify-content: space-between; }
+  .action-console { padding: 10px; }
+  .action-buttons-group { gap: 6px; }
+  .btn-action { padding: 8px 4px; min-width: 0; }
+  .btn-title { font-size: 13px; }
+  .btn-sub { font-size: 10px; }
+  .modal-box { max-height: 90dvh; overflow-y: auto; }
+  .buyin-limits-info, .form-row { flex-wrap: wrap; gap: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+.dealer-btn { top: -8px; left: -8px; }
+.seat-0 .seat-bet-chip, .seat-3 .seat-bet-chip { top: -9px; right: -4px; bottom: auto; left: auto; }

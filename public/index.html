@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:,">
   <title>MAXpoker - No-Limit Texas Hold'em</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="connectionStatus" class="connection-status hidden" role="status">Conexão perdida. Reconectando… Seu lugar será mantido por até 30 segundos.</div>
   <div class="stars-app">
 
     <!-- ========================================== -->
@@ -276,11 +278,11 @@
           <div class="form-row">
             <div class="form-group">
               <label for="minBuyInInput">Buy-in Mínimo ($):</label>
-              <input type="number" id="minBuyInInput" class="input-clean" value="400" min="200" step="100">
+              <input type="number" id="minBuyInInput" class="input-clean" value="2000" min="2000" step="100">
             </div>
             <div class="form-group">
               <label for="maxBuyInInput">Buy-in Máximo ($):</label>
-              <input type="number" id="maxBuyInInput" class="input-clean" value="2000" min="400" step="100">
+              <input type="number" id="maxBuyInInput" class="input-clean" value="10000" min="2000" step="100">
             </div>
           </div>
 

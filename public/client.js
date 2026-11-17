@@ -179,6 +179,7 @@ function connect() {
   socket = new WebSocket(wsUrl);
 
   socket.onopen = () => {
+    document.getElementById('connectionStatus').classList.add('hidden');
     console.log('MAXpoker conectado.');
     const savedToken = localStorage.getItem('maxpoker_token');
     if (savedToken) {
@@ -187,6 +188,8 @@ function connect() {
   };
 
   socket.onclose = () => {
+    document.getElementById('connectionStatus').classList.remove('hidden');
+    btnFold.disabled = btnCheckCall.disabled = btnBetRaise.disabled = betSlider.disabled = true;
     setTimeout(connect, 2000);
   };
 
@@ -206,6 +209,7 @@ function connect() {
         updateAccountUI();
         if (roomsData.length > 0) renderRoomsList(roomsData);
       } else if (data.type === 'authError') {
+        showAuthScreen();
         showAuthError(data.message);
       } else if (data.type === 'tokenExpired' || data.type === 'loggedOut') {
         localStorage.removeItem('maxpoker_token');
@@ -250,6 +254,8 @@ function connect() {
 function sendMsg(obj) {
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(obj));
+  } else {
+    showToast('Sem conexão. Aguarde a reconexão antes de jogar.');
   }
 }
 
@@ -322,7 +328,7 @@ function startBonusCountdown() {
     const elapsed = Date.now() - lastClaim;
     const remaining = COOLDOWN_MS - elapsed;
 
-    if (remaining <= 0 || currentAccount.bankroll < 2000) {
+    if (remaining <= 0) {
       btnClaimBonus.disabled = false;
       bonusBtnLabel.textContent = `🎁 +$${BONUS_VAL.toLocaleString('pt-BR')} Fichas`;
       if (bonusInterval) clearInterval(bonusInterval);
@@ -445,7 +451,7 @@ function renderRoomsList(rooms) {
 
     card.innerHTML = `
       <div class="room-header">
-        <span class="room-title-text">${room.name}</span>
+        <span class="room-title-text"></span>
         <span class="badge-pill">${diffLabel}</span>
       </div>
 
@@ -468,11 +474,12 @@ function renderRoomsList(rooms) {
         </div>
       </div>
 
-      <button class="btn-join-room" data-room-id="${room.id}">
+      <button class="btn-join-room" >
         Jogar
       </button>
     `;
 
+    card.querySelector('.room-title-text').textContent = room.name;
     const joinBtn = card.querySelector('.btn-join-room');
     joinBtn.addEventListener('click', () => {
       openBuyInModal(room);
@@ -513,7 +520,7 @@ function openBuyInModal(room) {
 
   buyInSlider.min = minB;
   buyInSlider.max = effectiveMax;
-  buyInSlider.step = Math.max(10, Math.floor(minB / 10));
+  buyInSlider.step = 1;
   buyInSlider.value = defVal;
 
   updateBuyInDisplay(defVal);
@@ -536,7 +543,7 @@ btnBuyInMin.addEventListener('click', () => {
 btnBuyInHalf.addEventListener('click', () => {
   const half = Math.round((Number(buyInSlider.min) + Number(buyInSlider.max)) / 2);
   buyInSlider.value = half;
-  updateBuyInDisplay(half);
+  updateBuyInDisplay(buyInSlider.value);
 });
 
 btnBuyInMax.addEventListener('click', () => {
@@ -574,8 +581,11 @@ btnCloseCreateModal.addEventListener('click', () => {
 createRoomForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const name = roomNameInput.value.trim() || 'Mesa MAXpoker';
-  const minB = Number(minBuyInInput.value) || 400;
-  const maxB = Number(maxBuyInInput.value) || 2000;
+  const minB = Number(minBuyInInput.value);
+  const maxB = Number(maxBuyInInput.value);
+  if (!Number.isSafeInteger(minB) || !Number.isSafeInteger(maxB) || minB < 2000 || maxB < minB) {
+    showToast('Mínimo de 2.000 fichas e máximo maior ou igual ao mínimo.'); return;
+  }
   const botDifficulty = botDifficultySelect.value;
   const botSpeed = botSpeedSelect.value;
   const autoFillBots = autoFillBotsCheck.checked;
@@ -611,7 +621,7 @@ function renderTable(table) {
   if (!table) return;
   currentTable = table;
 
-  tableHeaderName.textContent = `${table.roomName || table.name} (Blinds $${table.minRaise / 2 || 10}/$${table.minRaise || 20})`;
+  tableHeaderName.textContent = `${table.roomName || table.name} (Blinds $${table.smallBlind || 100}/$${table.bigBlind || 200})`;
   potDisplay.textContent = `POTE: $${table.pot.toLocaleString('pt-BR')}`;
   tableStatus.textContent = table.statusMsg || 'Mesa ativa.';
 
@@ -739,14 +749,18 @@ function renderSeats(table) {
 
     const displayName = isMe ? `${seatData.name} (Você)` : seatData.name;
     const chipsFmt = `$${seatData.chips.toLocaleString('pt-BR')}`;
-    const statusTag = seatData.lastAction ? `<div class="seat-status-tag">${seatData.lastAction}</div>` : '';
+    const statusTag = seatData.lastAction ? '<div class="seat-status-tag"></div>' : '';
 
     box.innerHTML = `
-      <div class="seat-avatar">${seatData.avatar || (seatData.isBot ? '🤖' : '👤')}</div>
-      <div class="seat-name">${displayName}</div>
+      <div class="seat-avatar"></div>
+      <div class="seat-name"></div>
       <div class="seat-chips">${chipsFmt}</div>
       ${statusTag}
     `;
+
+    box.querySelector('.seat-avatar').textContent = seatData.avatar || (seatData.isBot ? '🤖' : '👤');
+    box.querySelector('.seat-name').textContent = displayName;
+    if (seatData.lastAction) box.querySelector('.seat-status-tag').textContent = seatData.lastAction;
 
     if (isWinner) {
       const winData = table.lastWinners.find((w) => w.seatIndex === i);
@@ -842,14 +856,14 @@ function updateActionConsole(table) {
   const minBet = currentBet === 0 ? bigB : currentBet + bigB;
   const maxBet = mySeat.chips + myBet;
 
-  if (maxBet <= currentBet) {
+  if (maxBet <= currentBet || mySeat.canRaise === false) {
     btnBetRaise.disabled = true;
     betSlider.disabled = true;
   } else {
     const effectiveMin = Math.min(minBet, maxBet);
     betSlider.min = effectiveMin;
     betSlider.max = maxBet;
-    betSlider.step = bigB;
+    betSlider.step = 1;
     if (Number(betSlider.value) < effectiveMin || Number(betSlider.value) > maxBet) {
       betSlider.value = effectiveMin;
     }
@@ -919,7 +933,7 @@ btnFold.addEventListener('click', () => {
 
 btnCheckCall.addEventListener('click', () => {
   playSound('chip');
-  sendMsg({ type: 'action', action: 'call' });
+  sendMsg({ type: 'action', action: currentTable.currentBet === currentTable.seats[mySeatIndex].currentBet ? 'check' : 'call' });
   btnFold.disabled = true;
   btnCheckCall.disabled = true;
   btnBetRaise.disabled = true;
