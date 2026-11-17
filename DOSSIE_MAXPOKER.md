@@ -1,6 +1,6 @@
 # Dossiê técnico do MAXpoker
 
-Atualizado em 17 de novembro de 2026 · Versão 1.4.0
+Atualizado em 17 de novembro de 2026 · Versão 1.4.1
 
 ## Objetivo e escopo
 
@@ -65,7 +65,8 @@ Bots sem fichas recebem o buy-in padrão na preparação da próxima mão.
 
 Contas novas recebem 50.000 fichas; bônus de 10.000 com intervalo obrigatório de quatro horas,
 independentemente do saldo. A configuração histórica de cadastro do nome Gabriel mantém o
-valor inicial especial de 100 bilhões, mas login e reinício não redefinem um saldo já existente.
+valor inicial especial de 100 bilhões, e agora essa conta tem reposição automática até o mínimo de 100 bilhões em cada gravação.
+A carteira exibe ∞, enquanto stacks, apostas e potes continuam finitos e sujeitos aos limites da mesa.
 A aplicação não cria automaticamente uma conta com senha conhecida.
 
 O buy-in deve ser um inteiro dentro dos limites da mesa e do saldo disponível. Para mesas novas,

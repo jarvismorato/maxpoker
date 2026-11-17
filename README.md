@@ -1,7 +1,7 @@
 # MAXpoker
 
 Texas Hold'em com fichas virtuais, contas locais, mesas de seis lugares e bots.
-Versão 1.4.0.
+Versão 1.4.1.
 
 ## Executar
 
@@ -73,3 +73,6 @@ O servidor local usa HTTP; HTTPS/WSS é fornecido pela hospedagem ou proxy.
 Não há pagamentos ou saques de dinheiro real.
 
 Consulte DOSSIE_MAXPOKER.md para regras e limitações.
+
+A conta Gabriel possui carteira ilimitada (∞): o servidor recompõe automaticamente
+a reserva mínima de 100 bilhões. Limites das mesas e regras de apostas continuam válidos.

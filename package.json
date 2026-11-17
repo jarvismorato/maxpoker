@@ -1,6 +1,6 @@
 {
   "name": "maxpoker",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Texas Hold'em Poker multiplayer com bots inteligentes",
   "main": "server.js",
   "scripts": {

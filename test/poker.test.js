@@ -112,12 +112,12 @@ test('buy-in rejects NaN; active hands reject entry without removing a bot', () 
   assert.equal(e.run('r.seats[0].id'), 'p0');
 });
 
-test('restart refunds escrow once and does not reset VIP bankroll', () => {
-  const original = { gabriel: { username:'Gabriel',salt:'salt',passwordHash:'hash',bankroll:1000,tableEscrow:2345 } };
+test('restart refunds escrow once and preserves a regular bankroll', () => {
+  const original = { regular: { username:'Regular',salt:'salt',passwordHash:'hash',bankroll:1000,tableEscrow:2345 } };
   const e = engine(original);
-  assert.equal(e.saved().gabriel.bankroll, 3345);
-  assert.equal(e.saved().gabriel.tableEscrow, 0);
-  assert.equal(engine(e.saved()).saved().gabriel.bankroll, 3345);
+  assert.equal(e.saved().regular.bankroll, 3345);
+  assert.equal(e.saved().regular.tableEscrow, 0);
+  assert.equal(engine(e.saved()).saved().regular.bankroll, 3345);
 });
 
 test('invalid stored balances abort startup instead of overwriting accounts', () => {
@@ -130,6 +130,23 @@ test('bonus cooldown still applies when the wallet is nearly empty', () => {
     var ws={OPEN:1,readyState:1,send(){}};clients.set(ws,{username:'tester'});
     handleClientMessage(ws,{type:'claimBonus'});`);
   assert.equal(e.run('accounts.tester.bankroll'), 100);
+});
+
+test('Gabriel wallet replenishes after buy-in and restart without changing ordinary accounts', () => {
+  const e = engine({
+    gabriel: {username:'Gabriel',salt:'salt',passwordHash:'hash',bankroll:1000},
+    regular: {username:'Regular',salt:'salt',passwordHash:'hash',bankroll:50000}
+  });
+  assert.equal(e.saved().gabriel.bankroll, 100000000000);
+  e.run(`var r=createRoom({autoFillBots:false});
+    var c={id:'human',username:'Gabriel',seatIndex:-1};sitPlayerInRoom(r,c,-1,5000);`);
+  assert.equal(e.saved().gabriel.bankroll, 100000000000);
+  assert.equal(e.run('r.seats[0].chips'), 5000);
+  assert.equal(e.run('sanitizeAccount(accounts.gabriel).unlimitedChips'), true);
+  assert.equal(e.run('sanitizeAccount(accounts.regular).unlimitedChips'), false);
+  assert.equal(e.saved().regular.bankroll, 50000);
+  assert.equal(Number.isSafeInteger(e.saved().gabriel.bankroll), true);
+  assert.ok(engine(e.saved()).saved().gabriel.bankroll >= 100000000000);
 });
 
 test('pending table chips are included in the atomic account snapshot', () => {

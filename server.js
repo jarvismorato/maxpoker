@@ -87,6 +87,8 @@ function loadAccounts() {
 const accounts = DATABASE_URL ? Object.create(null) : loadAccounts();
 
 function saveAccounts() {
+  // Unlimited wallet uses safe integers; table stacks and pots remain finite.
+  if (accounts.gabriel) accounts.gabriel.bankroll = Math.max(accounts.gabriel.bankroll, USER_VIP_CHIPS);
   for (const acc of Object.values(accounts)) acc.tableEscrow = 0;
   for (const room of rooms.values()) for (const seat of room.seats) {
     if (!seat || seat.isBot || seat.departed) continue;
@@ -444,6 +446,7 @@ function sanitizeAccount(acc) {
     username: acc.username,
     avatar: acc.avatar || '🦁',
     bankroll: acc.bankroll,
+    unlimitedChips: acc.username.toLowerCase() === 'gabriel',
     lastBonusClaim: acc.lastBonusClaim || 0,
     handsWon: acc.handsWon || 0,
     handsPlayed: acc.handsPlayed || 0

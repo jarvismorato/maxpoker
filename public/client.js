@@ -307,11 +307,12 @@ function updateAccountUI() {
 
   lobbyUserAvatar.textContent = currentAccount.avatar || '🦁';
   lobbyUserName.textContent = currentAccount.username || 'Jogador';
-  lobbyUserBankroll.textContent = `$${currentAccount.bankroll.toLocaleString('pt-BR')}`;
+  const walletLabel = currentAccount.unlimitedChips ? '∞ Fichas' : `${currentAccount.bankroll.toLocaleString('pt-BR')}`;
+  lobbyUserBankroll.textContent = walletLabel;
 
   tableUserAvatar.textContent = currentAccount.avatar || '🦁';
   tableUserName.textContent = currentAccount.username || 'Jogador';
-  tableAccountChips.textContent = `$${currentAccount.bankroll.toLocaleString('pt-BR')}`;
+  tableAccountChips.textContent = walletLabel;
 
   startBonusCountdown();
 }
@@ -508,7 +509,7 @@ function openBuyInModal(room) {
 
   buyInMinLabel.textContent = `$${minB.toLocaleString('pt-BR')}`;
   buyInMaxLabel.textContent = `$${maxB.toLocaleString('pt-BR')}`;
-  buyInBalanceLabel.textContent = `$${balance.toLocaleString('pt-BR')}`;
+  buyInBalanceLabel.textContent = currentAccount.unlimitedChips ? '∞' : `${balance.toLocaleString('pt-BR')}`;
 
   if (balance < minB) {
     showToast(`Saldo insuficiente. Mínimo necessário: $${minB.toLocaleString('pt-BR')}`);
@@ -640,7 +641,7 @@ function renderTable(table) {
     const mySeat = table.seats[mySeatIndex];
     tableAccountChips.textContent = `Fichas: $${mySeat.chips.toLocaleString('pt-BR')}`;
   } else if (currentAccount) {
-    tableAccountChips.textContent = `Saldo: $${currentAccount.bankroll.toLocaleString('pt-BR')}`;
+    tableAccountChips.textContent = currentAccount.unlimitedChips ? 'Saldo: ∞' : `Saldo: ${currentAccount.bankroll.toLocaleString('pt-BR')}`;
   }
 
   // Notificação de Vencedor
