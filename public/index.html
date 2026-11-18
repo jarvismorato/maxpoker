@@ -248,7 +248,10 @@
             <span class="buyin-amount-number" id="buyInSelectedDisplay">$1.000</span>
           </div>
 
-          <input type="range" id="buyInSlider" min="400" max="2000" step="100" value="1000" class="styled-range">
+          <label for="buyInAmountInput">Valor inicial na mesa (fichas)</label>
+          <input type="number" id="buyInAmountInput" class="input-clean" min="400" max="2000" step="1" value="1000" inputmode="numeric" required aria-describedby="buyInHelp">
+          <p id="buyInHelp" class="modal-instruction">Digite o valor ou use a barra abaixo. As fichas saem do seu saldo ao sentar na mesa.</p>
+          <input type="range" id="buyInSlider" aria-label="Valor inicial na mesa" min="400" max="2000" step="1" value="1000" class="styled-range">
 
           <div class="buyin-quick-presets">
             <button type="button" class="btn-preset-chip" id="btnBuyInMin">Mínimo</button>

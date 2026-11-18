@@ -152,6 +152,7 @@ const buyInBalanceLabel = document.getElementById('buyInBalanceLabel');
 const buyInMaxLabel = document.getElementById('buyInMaxLabel');
 const buyInSelectedDisplay = document.getElementById('buyInSelectedDisplay');
 const buyInSlider = document.getElementById('buyInSlider');
+const buyInAmountInput = document.getElementById('buyInAmountInput');
 const btnBuyInMin = document.getElementById('btnBuyInMin');
 const btnBuyInHalf = document.getElementById('btnBuyInHalf');
 const btnBuyInMax = document.getElementById('btnBuyInMax');
@@ -524,14 +525,28 @@ function openBuyInModal(room) {
   buyInSlider.max = effectiveMax;
   buyInSlider.step = 1;
   buyInSlider.value = defVal;
+  buyInAmountInput.min = minB;
+  buyInAmountInput.max = effectiveMax;
 
   updateBuyInDisplay(defVal);
   modalBuyIn.classList.remove('hidden');
 }
 
 function updateBuyInDisplay(val) {
+  buyInAmountInput.value = val;
+  buyInAmountInput.setCustomValidity('');
   buyInSelectedDisplay.textContent = `$${Number(val).toLocaleString('pt-BR')}`;
 }
+
+buyInAmountInput.addEventListener('input', () => {
+  buyInAmountInput.setCustomValidity('');
+  if (buyInAmountInput.validity.valid) {
+    buyInSlider.value = buyInAmountInput.value;
+    buyInSelectedDisplay.textContent = `$${Number(buyInAmountInput.value).toLocaleString('pt-BR')}`;
+  } else {
+    buyInSelectedDisplay.textContent = 'Escolha um valor válido';
+  }
+});
 
 buyInSlider.addEventListener('input', (e) => {
   updateBuyInDisplay(e.target.value);
@@ -560,7 +575,14 @@ btnCloseBuyInModal.addEventListener('click', () => {
 
 btnConfirmBuyIn.addEventListener('click', () => {
   if (!selectedTargetRoom) return;
-  const amount = Number(buyInSlider.value);
+  const amount = Number(buyInAmountInput.value);
+  const availableMax = Math.min(selectedTargetRoom.maxBuyIn, currentAccount.bankroll);
+  buyInAmountInput.max = availableMax;
+  if (!buyInAmountInput.reportValidity()) return;
+  if (!Number.isSafeInteger(amount) || amount < selectedTargetRoom.minBuyIn || amount > availableMax) {
+    showToast('Escolha um valor inteiro dentro dos limites da mesa e do seu saldo.');
+    return;
+  }
   sendMsg({
     type: 'joinRoom',
     roomId: selectedTargetRoom.id,
