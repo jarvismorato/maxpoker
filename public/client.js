@@ -27,6 +27,7 @@ function getAudioContext() {
 }
 
 function playSound(type) {
+  if (window.maxpokerPreferences?.sound === false) return;
   try {
     const ctx = getAudioContext();
     if (!ctx) return;
@@ -136,6 +137,7 @@ const betRaiseTitle = document.getElementById('betRaiseTitle');
 const betRaiseSub = document.getElementById('betRaiseSub');
 const raiseSliderBox = document.getElementById('raiseSliderBox');
 const betSlider = document.getElementById('betSlider');
+const raiseAmountInput = document.getElementById('raiseAmountInput');
 const betSliderValue = document.getElementById('betSliderValue');
 const presetMin = document.getElementById('presetMin');
 const preset2x = document.getElementById('preset2x');
@@ -189,7 +191,7 @@ function connect() {
 
   socket.onclose = () => {
     document.getElementById('connectionStatus').classList.remove('hidden');
-    btnFold.disabled = btnCheckCall.disabled = btnBetRaise.disabled = betSlider.disabled = true;
+    btnFold.disabled = btnCheckCall.disabled = btnBetRaise.disabled = betSlider.disabled = raiseAmountInput.disabled = true;
     setTimeout(connect, 2000);
   };
 
@@ -198,9 +200,12 @@ function connect() {
       const data = JSON.parse(event.data);
 
       if (data.type === 'init') {
+        if (data.google) window.configureGoogleLogin?.(data.google);
         myClientId = data.clientId;
         roomsData = data.rooms || [];
         renderRoomsList(roomsData);
+      } else if (data.type === 'googleConfig') {
+        window.configureGoogleLogin?.(data.google);
       } else if (data.type === 'authSuccess') {
         localStorage.setItem('maxpoker_token', data.token);
         currentAccount = data.account;
@@ -214,6 +219,8 @@ function connect() {
       } else if (data.type === 'tokenExpired' || data.type === 'loggedOut') {
         localStorage.removeItem('maxpoker_token');
         currentAccount = null;
+        document.getElementById('accountDialog').close();
+        window.google?.accounts.id.disableAutoSelect();
         showAuthScreen();
       } else if (data.type === 'accountUpdate') {
         currentAccount = data.account;
@@ -314,6 +321,7 @@ function updateAccountUI() {
   tableUserName.textContent = currentAccount.username || 'Jogador';
   tableAccountChips.textContent = walletLabel;
 
+  window.refreshAccountSettings?.();
   startBonusCountdown();
 }
 
@@ -634,10 +642,17 @@ btnLeaveTable.addEventListener('click', () => {
 // RENDERIZAÇÃO DA MESA DE POKER
 // ==========================================
 let previousCardCount = 0;
+let renderedHand = '';
+let previousSeatCards = new Map();
+let previousSeatBets = new Map();
 let previousWinnerReported = false;
 
 function renderTable(table) {
   if (!table) return;
+  const handKey = currentRoomId + ':' + table.handNumber;
+  if (renderedHand !== handKey) {
+    renderedHand = handKey; previousCardCount = 0; previousSeatCards.clear(); previousSeatBets.clear();
+  }
   currentTable = table;
   document.getElementById('waitingSeatNotice').classList.toggle('hidden', !table.waitingForSeat);
 
@@ -700,13 +715,14 @@ function renderCommunityCards(cards) {
   if (currentCount > previousCardCount) {
     playSound('deal');
   }
+  const oldCount = previousCardCount;
   previousCardCount = currentCount;
 
   for (let i = 0; i < 5; i++) {
     const cardData = cards[i];
     if (cardData) {
       const cardEl = createCardElement(cardData);
-      cardEl.classList.add('card-flip');
+      if (i >= oldCount) { cardEl.classList.add('card-flip'); cardEl.style.animationDelay = ((i - oldCount) * 100) + 'ms'; }
       communityCards.appendChild(cardEl);
     }
   }
@@ -811,6 +827,15 @@ function renderSeats(table) {
       });
     }
 
+    const cardSignature = JSON.stringify(seatData.cards || []);
+    const previousCards = previousSeatCards.get(seatData.id);
+    if (previousCards !== cardSignature) {
+      Array.from(cardsRow.children).forEach((card, index) => {
+        card.classList.add(previousCards ? 'card-reveal' : 'card-deal');
+        card.style.animationDelay = (index * 90 + (previousCards ? 0 : i * 45)) + 'ms';
+      });
+    }
+    previousSeatCards.set(seatData.id, cardSignature);
     seatEl.appendChild(box);
     seatEl.appendChild(cardsRow);
 
@@ -818,14 +843,18 @@ function renderSeats(table) {
     if (seatData.currentBet > 0) {
       const betChip = document.createElement('div');
       betChip.className = 'seat-bet-chip';
+      if (previousSeatBets.get(seatData.id) !== seatData.currentBet) betChip.classList.add('chip-arrive');
       betChip.textContent = `$${seatData.currentBet.toLocaleString('pt-BR')}`;
       seatEl.appendChild(betChip);
     }
+
+    previousSeatBets.set(seatData.id, seatData.currentBet);
 
     // Botão Dealer ("D") com rotação ao mudar
     if (isDealer) {
       const dealerBtn = document.createElement('div');
       dealerBtn.className = 'dealer-btn';
+      if (lastDealerSeat !== table.dealerSeat) dealerBtn.classList.add('dealer-move');
       dealerBtn.textContent = 'D';
       dealerBtn.title = 'Dealer';
       seatEl.appendChild(dealerBtn);
@@ -847,7 +876,7 @@ function updateActionConsole(table) {
     btnFold.disabled = true;
     btnCheckCall.disabled = true;
     btnBetRaise.disabled = true;
-    betSlider.disabled = true;
+    betSlider.disabled = raiseAmountInput.disabled = true;
     return;
   }
 
@@ -856,7 +885,7 @@ function updateActionConsole(table) {
   btnFold.disabled = false;
   btnCheckCall.disabled = false;
   btnBetRaise.disabled = false;
-  betSlider.disabled = false;
+  betSlider.disabled = raiseAmountInput.disabled = false;
 
   const currentBet = table.currentBet || 0;
   const myBet = mySeat.currentBet || 0;
@@ -878,16 +907,19 @@ function updateActionConsole(table) {
 
   if (maxBet <= currentBet || mySeat.canRaise === false) {
     btnBetRaise.disabled = true;
-    betSlider.disabled = true;
+    betSlider.disabled = raiseAmountInput.disabled = true;
   } else {
     const effectiveMin = Math.min(minBet, maxBet);
     betSlider.min = effectiveMin;
     betSlider.max = maxBet;
     betSlider.step = 1;
+    raiseAmountInput.min = effectiveMin;
+    raiseAmountInput.max = maxBet;
     if (Number(betSlider.value) < effectiveMin || Number(betSlider.value) > maxBet) {
       betSlider.value = effectiveMin;
     }
 
+    if (document.activeElement !== raiseAmountInput) raiseAmountInput.value = betSlider.value;
     const currentSliderVal = Number(betSlider.value);
     betSliderValue.textContent = `$${currentSliderVal.toLocaleString('pt-BR')}`;
 
@@ -903,6 +935,7 @@ function updateActionConsole(table) {
 
 betSlider.addEventListener('input', (e) => {
   const val = Number(e.target.value);
+  raiseAmountInput.value = val;
   betSliderValue.textContent = `$${val.toLocaleString('pt-BR')}`;
   const currentBet = currentTable ? currentTable.currentBet : 0;
   if (currentBet === 0) {
@@ -912,6 +945,15 @@ betSlider.addEventListener('input', (e) => {
     betRaiseTitle.textContent = 'AUMENTAR';
     betRaiseSub.textContent = `Para $${val.toLocaleString('pt-BR')}`;
   }
+});
+
+raiseAmountInput.addEventListener('input', () => {
+  if (!raiseAmountInput.validity.valid) {
+    betRaiseSub.textContent = 'Valor inválido';
+    return;
+  }
+  betSlider.value = raiseAmountInput.value;
+  betSlider.dispatchEvent(new Event('input'));
 });
 
 presetMin.addEventListener('click', () => {
@@ -960,8 +1002,10 @@ btnCheckCall.addEventListener('click', () => {
 });
 
 btnBetRaise.addEventListener('click', () => {
+  if (raiseAmountInput.disabled || !raiseAmountInput.reportValidity()) return;
+  const amount = Number(raiseAmountInput.value);
+  if (!Number.isSafeInteger(amount)) return;
   playSound('chip');
-  const amount = Number(betSlider.value);
   sendMsg({ type: 'action', action: 'raise', amount });
   btnFold.disabled = true;
   btnCheckCall.disabled = true;

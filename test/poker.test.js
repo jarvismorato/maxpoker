@@ -124,6 +124,31 @@ test('buy-in has no table cap but still requires an integer within the wallet', 
   assert.equal(e.run('accounts.tester.bankroll'), 0);
 });
 
+test('Google linking preserves the wallet and rejects linking an identity owned elsewhere', () => {
+  const e = engine();
+  e.run(`accounts.tester={username:'tester',bankroll:98765};accounts.other={username:'other',bankroll:2000,googleSub:'taken'};
+    var messages=[];var ws={OPEN:1,readyState:1,send:m=>messages.push(JSON.parse(m))};
+    clients.set(ws,{id:'human',username:'tester',seatIndex:-1,roomId:null});
+    applyGoogleIdentity(ws,{sub:'taken',name:'Tester'},true);`);
+  assert.equal(e.run('accounts.tester.googleSub'), undefined);
+  e.run("applyGoogleIdentity(ws,{sub:'mine',name:'Tester'},true)");
+  assert.equal(e.run('accounts.tester.googleSub'), 'mine');
+  assert.equal(e.run('accounts.tester.bankroll'), 98765);
+});
+
+test('Google name never matches or takes over an existing privileged account', () => {
+  const e = engine();
+  e.run(`accounts.gabriel={username:'Gabriel',bankroll:100000000000};
+    var messages=[];var ws={OPEN:1,readyState:1,send:m=>messages.push(JSON.parse(m))};
+    clients.set(ws,{id:'human',username:null,seatIndex:-1,roomId:null});
+    applyGoogleIdentity(ws,{sub:'new-subject',name:'Gabriel'},false);
+    var newKey=clients.get(ws).username.toLowerCase();`);
+  assert.notEqual(e.run('newKey'), 'gabriel');
+  assert.equal(e.run('accounts[newKey].bankroll'), 50000);
+  assert.equal(e.run('accounts.gabriel.googleSub'), undefined);
+  assert.equal(e.run('sanitizeAccount(accounts[newKey]).unlimitedChips'), false);
+});
+
 test('restart refunds escrow once and preserves a regular bankroll', () => {
   const original = { regular: { username:'Regular',salt:'salt',passwordHash:'hash',bankroll:1000,tableEscrow:2345 } };
   const e = engine(original);

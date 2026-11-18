@@ -3,6 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
+const { verifyGoogleCredential } = require('./lib/google-auth');
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+const PROFILE_AVATARS = ['🦁', '🐯', '🦊', '🐼', '🐺', '🦅', '🐉', '🤖'];
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -324,6 +327,7 @@ function createRoom(options = {}) {
     currentBet: 0,
     minRaise: BIG_BLIND,
     handInProgress: false,
+    handNumber: 0,
     statusMsg: 'Mesa pronta! Escolha seu Buy-in para começar.',
     timer: null,
     botTimer: null
@@ -336,7 +340,7 @@ function createRoom(options = {}) {
 // Mesas pré-definidas com buy-ins proporcionais aos 50.000 / 100 bilhões
 createRoom({
   id: 'mesa-iniciante',
-  name: 'Mesa 1 - Iniciantes ($4.000 - $20.000)',
+  name: 'Mesa 1 — Iniciantes',
   botDifficulty: 'easy',
   botSpeed: 'slow',
   minBuyIn: 4000,
@@ -347,7 +351,7 @@ createRoom({
 
 createRoom({
   id: 'mesa-padrao',
-  name: 'Mesa 2 - Regular ($10.000 - $50.000)',
+  name: 'Mesa 2 — Regular',
   botDifficulty: 'medium',
   botSpeed: 'normal',
   minBuyIn: 10000,
@@ -358,7 +362,7 @@ createRoom({
 
 createRoom({
   id: 'mesa-highroller',
-  name: 'Mesa 3 - High Roller VIP ($50.000 - $500.000)',
+  name: 'Mesa 3 — High Roller VIP',
   botDifficulty: 'hard',
   botSpeed: 'normal',
   minBuyIn: 50000,
@@ -378,11 +382,13 @@ createRoom({ id: 'mesa-impossivel', name: 'Desafio Impossível', botDifficulty: 
 wss.on('connection', (ws) => {
   runStateChange(() => {
   const clientId = 'user_' + Math.random().toString(36).substring(2, 9);
-  clients.set(ws, { id: clientId, username: null, roomId: null, seatIndex: -1 });
+  clients.set(ws, { id: clientId, username: null, roomId: null, seatIndex: -1,
+    googleNonce: crypto.randomBytes(24).toString('hex') });
 
   sendToClient(ws, {
     type: 'init',
     clientId,
+    google: { clientId: GOOGLE_CLIENT_ID, nonce: clients.get(ws).googleNonce },
     rooms: getRoomsSummary()
   });
   });
@@ -390,6 +396,10 @@ wss.on('connection', (ws) => {
   ws.on('message', (data) => {
     try {
       const msg = JSON.parse(data.toString());
+      if (msg?.type === 'googleLogin' || msg?.type === 'googleLink') {
+        authenticateGoogle(ws, msg);
+        return;
+      }
       runStateChange(() => handleClientMessage(ws, msg));
     } catch (e) {
       console.error('Erro na mensagem do cliente:', e);
@@ -452,6 +462,7 @@ function sanitizeAccount(acc) {
   if (!acc) return null;
   return {
     username: acc.username,
+    googleLinked: !!acc.googleSub,
     avatar: acc.avatar || '🦁',
     bankroll: acc.bankroll,
     unlimitedChips: acc.username.toLowerCase() === 'gabriel',
@@ -575,6 +586,68 @@ function sendRestoredRoom(ws) {
     table: getSanitizedTable(rooms.get(client.roomId), client.id) });
 }
 
+async function authenticateGoogle(ws, msg) {
+  const client = clients.get(ws);
+  if (!client || client.disconnected || client.googleBusy || Date.now() - (client.googleAttempt || 0) < 2000) return;
+  const linking = msg.type === 'googleLink';
+  if (linking !== !!client.username) return;
+  client.googleBusy = true;
+  client.googleAttempt = Date.now();
+  const username = client.username;
+  try {
+    // Verify outside the durable queue so Google's network cannot stall a poker hand.
+    const identity = await verifyGoogleCredential(msg.credential, GOOGLE_CLIENT_ID, client.googleNonce);
+    await runStateChange(() => {
+      if (clients.get(ws) !== client || client.disconnected || client.username !== username) return;
+      applyGoogleIdentity(ws, identity, linking);
+    });
+  } catch {
+    await runStateChange(() => sendToClient(ws, { type: linking ? 'alert' : 'authError',
+      message: 'Não foi possível confirmar sua conta Google. Tente novamente.' }));
+  } finally {
+    client.googleBusy = false;
+    await runStateChange(() => {
+      if (clients.get(ws) !== client || client.disconnected) return;
+      client.googleNonce = crypto.randomBytes(24).toString('hex');
+      sendToClient(ws, { type: 'googleConfig', google: { clientId: GOOGLE_CLIENT_ID, nonce: client.googleNonce } });
+    });
+  }
+}
+
+function applyGoogleIdentity(ws, identity, linking) {
+  const client = clients.get(ws);
+  let key = Object.keys(accounts).find(k => accounts[k].googleSub === identity.sub);
+  if (linking) {
+    const ownKey = client.username.toLowerCase();
+    if ((key && key !== ownKey) || (accounts[ownKey].googleSub && accounts[ownKey].googleSub !== identity.sub)) {
+      sendToClient(ws, { type: 'alert', message: 'Esta conta já possui outro vínculo com o Google.' });
+      return;
+    }
+    accounts[ownKey].googleSub = identity.sub;
+    saveAccounts();
+    sendToClient(ws, { type: 'accountUpdate', account: sanitizeAccount(accounts[ownKey]) });
+    sendToClient(ws, { type: 'alert', message: 'Google vinculado! Seu saldo e histórico foram mantidos.' });
+    return;
+  }
+  if (!key) {
+    // Never infer ownership from a matching name/email, or grant privileged usernames.
+    const base = identity.name.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 18) || 'Jogador';
+    let username;
+    do { username = base + '_' + crypto.randomBytes(4).toString('hex'); key = username.toLowerCase(); } while (accounts[key]);
+    const salt = crypto.randomBytes(16).toString('hex');
+    accounts[key] = { username, googleSub: identity.sub, avatar: '🦁', salt,
+      passwordHash: hashPassword(crypto.randomBytes(48).toString('hex'), salt),
+      bankroll: DEFAULT_START_CHIPS, tableEscrow: 0, lastBonusClaim: 0, handsWon: 0, handsPlayed: 0 };
+    saveAccounts();
+  }
+  if (!attachAccount(ws, key)) return;
+  const token = crypto.randomBytes(24).toString('hex');
+  sessionTokens.set(token, key);
+  sendToClient(ws, { type: 'authSuccess', token, account: sanitizeAccount(accounts[key]) });
+  sendRestoredRoom(ws);
+  broadcastLobby();
+}
+
 function handleClientMessage(ws, msg) {
   const client = clients.get(ws);
   if (!client || !msg || typeof msg !== 'object') return;
@@ -680,6 +753,22 @@ function handleClientMessage(ws, msg) {
     } else {
       sendToClient(ws, { type: 'tokenExpired' });
     }
+  }
+
+  else if (msg.type === 'getAccount') {
+    sendToClient(ws, { type: 'accountUpdate', account: sanitizeAccount(accounts[client.username.toLowerCase()]) });
+  }
+  else if (msg.type === 'updateProfile') {
+    if (!PROFILE_AVATARS.includes(msg.avatar)) return;
+    const acc = accounts[client.username.toLowerCase()];
+    acc.avatar = msg.avatar;
+    const room = rooms.get(client.roomId);
+    const seat = room?.seats[client.seatIndex];
+    if (seat?.id === client.id) seat.avatar = msg.avatar;
+    saveAccounts();
+    sendToClient(ws, { type: 'accountUpdate', account: sanitizeAccount(acc) });
+    if (room) broadcastRoom(room);
+    sendToClient(ws, { type: 'alert', message: 'Avatar atualizado.' });
   }
 
   // 4. Logout
@@ -946,6 +1035,7 @@ function getSanitizedTable(room, clientId) {
     smallBlind: SMALL_BLIND,
     bigBlind: BIG_BLIND,
     handInProgress: room.handInProgress,
+    handNumber: room.handNumber,
     statusMsg: room.statusMsg,
     lastWinners: room.lastWinners || null
   };
@@ -1024,6 +1114,7 @@ function contenders(room) {
 
 function startNewHand(room) {
   if (getSeatedPlayers(room).length < 2) return;
+  room.handNumber++;
   cancelTask(room.streetTimer);
   cancelTask(room.actionTimer);
   room.handInProgress = true;

@@ -73,6 +73,7 @@
           <p class="auth-switch-prompt">Já tem uma conta? <a href="#" id="linkGoLogin">Fazer login</a></p>
         </form>
 
+        <div id="googleLoginArea" class="google-login-area hidden"><p class="auth-divider">ou continue com</p><div id="googleLoginButton"></div><p class="auth-switch-prompt">Já tem uma conta? Entre com sua senha e vincule o Google nas configurações para manter suas fichas.</p></div>
         <div id="authErrorMessage" class="auth-error-msg hidden"></div>
       </div>
     </div>
@@ -89,13 +90,14 @@
         </div>
 
         <div class="user-strip">
-          <div class="user-info-pill">
+          <button type="button" class="user-info-pill account-trigger" id="lobbyAccountButton" aria-haspopup="dialog" title="Abrir configurações da conta">
             <span class="user-avatar-badge" id="lobbyUserAvatar">🦁</span>
             <div class="user-name-box">
               <span class="user-display-name" id="lobbyUserName">Jogador</span>
               <span class="user-chips-gold" id="lobbyUserBankroll">$50.000</span>
             </div>
-          </div>
+            <span aria-hidden="true">⌄</span>
+          </button>
 
           <!-- Bônus 4 Horas -->
           <button id="btnClaimBonus" class="btn-bonus-timer" title="Bônus a cada 4 horas">
@@ -138,11 +140,11 @@
       <div class="table-overlay-header">
         <button id="btnLeaveTable" class="btn-table-leave">← Sair da Mesa</button>
         <div class="table-info-tag" id="tableHeaderName">Mesa MAXpoker</div>
-        <div class="table-player-badge">
+        <button type="button" class="table-player-badge account-trigger" id="tableAccountButton" aria-haspopup="dialog" title="Abrir configurações da conta">
           <span id="tableUserAvatar">🦁</span>
           <span id="tableUserName">Jogador</span>
-          <span class="table-chips-accent" id="tableAccountChips">Fichas: $0</span>
-        </div>
+          <span class="table-chips-accent" id="tableAccountChips">Fichas: $0</span><span aria-hidden="true">⌄</span>
+        </button>
       </div>
 
       <div id="waitingSeatNotice" class="waiting-seat-notice hidden" role="status">Você está assistindo. Sua vaga está reservada para a próxima mão; o buy-in só será cobrado quando você sentar.</div>
@@ -203,6 +205,7 @@
           </div>
         </div>
 
+        <div class="raise-manual"><label for="raiseAmountInput">Aposta total na rodada</label><input type="number" id="raiseAmountInput" class="input-clean" inputmode="numeric" step="1" required disabled aria-describedby="raiseAmountHint"><span id="raiseAmountHint">Digite o valor ou ajuste a barra.</span></div>
         <div class="action-buttons-group">
           <!-- Botão Fold -->
           <button id="btnFold" class="btn-action btn-fold" disabled>
@@ -325,6 +328,16 @@
 
   </div>
 
+  <dialog id="accountDialog" class="account-dialog" aria-labelledby="accountDialogTitle">
+    <div class="account-dialog-header"><div><span class="account-eyebrow">SEU ESPAÇO</span><h2 id="accountDialogTitle">Minha conta</h2></div><button type="button" id="closeAccountDialog" class="btn-close-modal" aria-label="Fechar configurações">✕</button></div>
+    <div class="account-profile"><span id="settingsAvatar" class="settings-avatar">🦁</span><div><h3 id="settingsName"></h3><p id="settingsWallet"></p></div></div>
+    <div class="account-stats"><div><strong id="settingsHands">0</strong><span>Mãos jogadas</span></div><div><strong id="settingsWins">0</strong><span>Vitórias</span></div><div><strong id="settingsWinRate">0%</strong><span>Taxa de vitória</span></div></div>
+    <section class="settings-section"><h3>Seu avatar</h3><div id="settingsAvatars" class="settings-avatars" role="group" aria-label="Escolha seu avatar"></div></section>
+    <section class="settings-section"><h3>Do seu jeito</h3><label class="setting-row" for="settingSound"><span>Sons da mesa<small>Cartas, fichas e vitórias</small></span><input id="settingSound" type="checkbox" role="switch"></label><label class="setting-row" for="settingMotion"><span>Animações<small>Distribuição de cartas e transições</small></span><input id="settingMotion" type="checkbox" role="switch"></label><label class="setting-row" for="settingFelt"><span>Cor da mesa</span><select id="settingFelt" class="select-clean"><option value="classic">Verde clássico</option><option value="blue">Azul noturno</option><option value="purple">Roxo imperial</option></select></label><p class="settings-note">Preferências salvas neste navegador para sua conta.</p></section>
+    <section class="settings-section"><h3>Acesso com Google</h3><p id="googleLinkStatus" class="settings-note">Login com Google em configuração.</p><div id="googleLinkButton"></div></section>
+    <button type="button" id="settingsLogout" class="btn-logout">Sair da conta</button>
+  </dialog>
   <script src="client.js"></script>
+  <script src="account-ui.js"></script>
 </body>
 </html>

@@ -1319,3 +1319,56 @@ body {
 .seat-0 .seat-bet-chip, .seat-3 .seat-bet-chip { top: -9px; right: -4px; bottom: auto; left: auto; }
 
 .waiting-seat-notice { padding: 10px 14px; border: 1px solid #b88c34; border-radius: 8px; background: #302813; color: #ffe7a5; font-size: 14px; line-height: 1.4; }
+/* Account settings and table interactions */
+.account-trigger { color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.account-trigger:hover { border-color: #d8b45a; background-color: #242b38; }
+.account-trigger:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #e7c46a; outline-offset: 3px; }
+.account-dialog { color: #e8edf6; background: linear-gradient(150deg,#202938,#111820 65%); border: 1px solid #465166; border-radius: 24px; padding: 28px; width: min(510px, calc(100vw - 28px)); max-height: calc(100dvh - 32px); overflow-y: auto; margin: auto; box-shadow: 0 30px 100px #0009; }
+.account-dialog::backdrop { background: #060b15b8; backdrop-filter: blur(7px); }
+.account-dialog[open] { animation: settings-in .22s ease-out; }
+.account-dialog-header { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.account-dialog h2 { margin:5px 0 0; font-size:1.6rem; }
+.account-eyebrow { font-size:.65rem; letter-spacing:.22em; color:#dfbf79; }
+.account-profile { display:flex; align-items:center; gap:16px; margin:24px 0; }
+.account-profile h3 { overflow-wrap:anywhere; margin:0 0 6px; }
+.account-profile p { color:#e7c46a; margin:0; }
+.settings-avatar { font-size:2.5rem; background:#ffffff08; border:1px solid #ffffff15; border-radius:20px; padding:14px; }
+.account-stats { display:grid; grid-template-columns:repeat(3,1fr); background:#080e1680; padding:16px 5px; border-radius:14px; }
+.account-stats div { display:flex; align-items:center; flex-direction:column; gap:6px; }
+.account-stats strong { font-size:1.3rem; }
+.account-stats span { font-size:.7rem; color:#abb7ca; }
+.settings-section { border-top:1px solid #ffffff10; padding-top:18px; margin-top:20px; }
+.settings-section h3 { font-size:.95rem; margin:0 0 14px; }
+.settings-avatars { display:grid; grid-template-columns:repeat(8,1fr); gap:5px; }
+.settings-avatars button { background:#ffffff08; border:1px solid transparent; border-radius:10px; font-size:1.35rem; padding:9px 0; cursor:pointer; }
+.settings-avatars button[aria-pressed=true] { border-color:#dfbf79; background:#dfbf7920; }
+.setting-row { display:flex; align-items:center; justify-content:space-between; gap:15px; padding:10px 0; font-size:.9rem; }
+.setting-row small { display:block; color:#95a2b7; margin-top:5px; font-size:.75rem; }
+.setting-row input[type=checkbox] { width:22px; height:22px; accent-color:#dfbf79; flex-shrink:0; }
+.setting-row select { width:160px; }
+.settings-note { font-size:.78rem; color:#9eacc0; line-height:1.6; margin:8px 0 14px; }
+#settingsLogout { margin-top:18px; width:100%; padding:12px; }
+.google-login-area { margin:18px 0 6px; }
+.auth-divider { text-align:center; color:#9eacc0; font-size:.8rem; margin-bottom:15px; }
+#googleLoginButton { display:flex; justify-content:center; }
+.raise-manual { display:flex; align-items:center; gap:12px; font-size:.8rem; color:#b5c0d2; flex-wrap:wrap; }
+.raise-manual .input-clean { width:160px; padding:9px 12px; color:#e7c46a; font-weight:700; }
+#raiseAmountHint { font-size:.72rem; color:#8b99ad; }
+button { transition:background-color .18s, border-color .18s, box-shadow .18s, filter .18s, translate .18s; }
+button:not(:disabled):active { translate:0 2px; filter:brightness(1.15); }
+.btn-action:not(:disabled):hover { translate:0 -2px; box-shadow:0 6px 16px #0005; }
+.poker-card, .dealer-btn { animation:none; }
+.poker-card.card-deal { animation:card-deal .45s cubic-bezier(.2,.7,.2,1) backwards; }
+.poker-card.card-reveal, .poker-card.card-flip { animation:cardFlipAnim .48s ease-out backwards; }
+.dealer-btn.dealer-move { animation:rotateDealerBtn .6s ease-out; }
+.chip-arrive { animation:chip-arrive .3s ease-out; }
+body[data-felt=blue] .poker-table-felt { background:radial-gradient(ellipse,#1a4266,#10253d 75%,#0b1729); border-color:#275c83; }
+body[data-felt=purple] .poker-table-felt { background:radial-gradient(ellipse,#482b63,#2a183e 75%,#1b102b); border-color:#62407b; }
+@keyframes settings-in { from { opacity:0; transform:translateY(12px) scale(.98); } to { opacity:1; transform:none; } }
+@keyframes card-deal { from { opacity:0; transform:translate(25px,-65px) rotate(-18deg) scale(.65); } to { opacity:1; transform:none; } }
+@keyframes chip-arrive { from { opacity:0; scale:.5; translate:0 10px; } to { opacity:1; scale:1; translate:0; } }
+.reduce-motion *, .reduce-motion *::before, .reduce-motion *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+@media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; } }
+@media (max-width:520px) { .account-dialog { padding:20px; border-radius:18px; } .settings-avatars { grid-template-columns:repeat(4,1fr); } .raise-manual { gap:7px; } #raiseAmountHint { flex-basis:100%; } .account-stats span { font-size:.65rem; } }
+.account-trigger { background:#1b2330; border:1px solid #344054; border-radius:12px; padding:7px 12px; }
+@media (min-width:761px) and (max-height:800px) { .table-viewport { min-height:410px; } .poker-table-outer { height:400px; } .table-screen { height:auto; min-height:96vh; } }
