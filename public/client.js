@@ -165,7 +165,6 @@ const btnCloseCreateModal = document.getElementById('btnCloseCreateModal');
 const createRoomForm = document.getElementById('createRoomForm');
 const roomNameInput = document.getElementById('roomNameInput');
 const minBuyInInput = document.getElementById('minBuyInInput');
-const maxBuyInInput = document.getElementById('maxBuyInInput');
 const botDifficultySelect = document.getElementById('botDifficultySelect');
 const botSpeedSelect = document.getElementById('botSpeedSelect');
 const autoFillBotsCheck = document.getElementById('autoFillBotsCheck');
@@ -449,7 +448,6 @@ function renderRoomsList(rooms) {
     const bBlind = room.bigBlind ?? 20;
     const maxP = room.maxPlayers ?? room.maxSeats ?? 6;
     const minB = room.minBuyIn ?? 400;
-    const maxB = room.maxBuyIn ?? 2000;
 
     card.innerHTML = `
       <div class="room-header">
@@ -473,7 +471,7 @@ function renderRoomsList(rooms) {
         </div>
         <div class="meta-item">
           <span class="meta-label">Buy-in Máx.</span>
-          <span class="meta-val gold">$${maxB.toLocaleString('pt-BR')}</span>
+          <span class="meta-val gold">Sem limite</span>
         </div>
       </div>
 
@@ -506,11 +504,10 @@ function openBuyInModal(room) {
   buyInModalTableName.textContent = room.name;
 
   const minB = room.minBuyIn;
-  const maxB = room.maxBuyIn;
   const balance = currentAccount.bankroll;
 
   buyInMinLabel.textContent = `$${minB.toLocaleString('pt-BR')}`;
-  buyInMaxLabel.textContent = `$${maxB.toLocaleString('pt-BR')}`;
+  buyInMaxLabel.textContent = 'Sem limite';
   buyInBalanceLabel.textContent = currentAccount.unlimitedChips ? '∞' : `${balance.toLocaleString('pt-BR')}`;
 
   if (balance < minB) {
@@ -518,7 +515,7 @@ function openBuyInModal(room) {
     return;
   }
 
-  const effectiveMax = Math.min(maxB, balance);
+  const effectiveMax = balance;
   const defVal = Math.min(effectiveMax, Math.max(minB, room.defaultBuyIn || minB * 2));
 
   buyInSlider.min = minB;
@@ -576,7 +573,7 @@ btnCloseBuyInModal.addEventListener('click', () => {
 btnConfirmBuyIn.addEventListener('click', () => {
   if (!selectedTargetRoom) return;
   const amount = Number(buyInAmountInput.value);
-  const availableMax = Math.min(selectedTargetRoom.maxBuyIn, currentAccount.bankroll);
+  const availableMax = currentAccount.bankroll;
   buyInAmountInput.max = availableMax;
   if (!buyInAmountInput.reportValidity()) return;
   if (!Number.isSafeInteger(amount) || amount < selectedTargetRoom.minBuyIn || amount > availableMax) {
@@ -606,9 +603,8 @@ createRoomForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const name = roomNameInput.value.trim() || 'Mesa MAXpoker';
   const minB = Number(minBuyInInput.value);
-  const maxB = Number(maxBuyInInput.value);
-  if (!Number.isSafeInteger(minB) || !Number.isSafeInteger(maxB) || minB < 2000 || maxB < minB) {
-    showToast('Mínimo de 2.000 fichas e máximo maior ou igual ao mínimo.'); return;
+  if (!Number.isSafeInteger(minB) || minB < 2000) {
+    showToast('Mínimo de 2.000 fichas.'); return;
   }
   const botDifficulty = botDifficultySelect.value;
   const botSpeed = botSpeedSelect.value;
@@ -618,8 +614,7 @@ createRoomForm.addEventListener('submit', (e) => {
     type: 'createRoom',
     name,
     minBuyIn: minB,
-    maxBuyIn: maxB,
-    defaultBuyIn: Math.round((minB + maxB) / 2),
+    defaultBuyIn: minB,
     botDifficulty,
     botSpeed,
     autoFillBots

@@ -112,6 +112,18 @@ test('buy-in rejects NaN; active hands reject entry without removing a bot', () 
   assert.equal(e.run('r.seats[0].id'), 'p0');
 });
 
+test('buy-in has no table cap but still requires an integer within the wallet', () => {
+  const e = engine();
+  e.run(`accounts.tester={username:'tester',bankroll:1000000};var r=createRoom({autoFillBots:false,maxBuyIn:5000});
+    var c={id:'human',username:'tester',seatIndex:-1};`);
+  for (const amount of ['1000001', '5000.5', 'Infinity', '-1']) {
+    assert.equal(e.run(`sitPlayerInRoom(r,c,-1,${amount}).success`), false);
+  }
+  assert.equal(e.run('sitPlayerInRoom(r,c,-1,1000000).success'), true);
+  assert.equal(e.run('r.seats[0].chips'), 1000000);
+  assert.equal(e.run('accounts.tester.bankroll'), 0);
+});
+
 test('restart refunds escrow once and preserves a regular bankroll', () => {
   const original = { regular: { username:'Regular',salt:'salt',passwordHash:'hash',bankroll:1000,tableEscrow:2345 } };
   const e = engine(original);

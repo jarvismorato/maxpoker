@@ -301,7 +301,7 @@ function createRoom(options = {}) {
   const autoFillBots = options.autoFillBots !== undefined ? options.autoFillBots : true;
 
   const minBuyIn = Number(options.minBuyIn) || 4000;
-  const maxBuyIn = Number(options.maxBuyIn) || 50000;
+  const maxBuyIn = null; // No table cap; each player is limited by their wallet.
   const defaultBuyIn = Number(options.defaultBuyIn) || 10000;
 
   const room = {
@@ -471,14 +471,13 @@ function sitPlayerInRoom(room, client, targetSeatIndex = -1, requestedBuyIn = nu
   if (room.handInProgress) return { success: false, message: 'Mão em andamento. Aguarde o término para entrar.' };
   if (client.seatIndex !== -1) return { success: false, message: 'Você já está sentado.' };
   const minB = room.minBuyIn;
-  const maxB = room.maxBuyIn;
 
   if (acc.bankroll < minB) {
     return { success: false, message: `Você precisa de pelo menos $${minB.toLocaleString('pt-BR')} fichas para entrar nesta mesa. Resgate o bônus ou escolha outra mesa!` };
   }
 
   let buyIn = requestedBuyIn !== null ? requestedBuyIn : room.defaultBuyIn;
-  if (!Number.isSafeInteger(buyIn) || buyIn < minB || buyIn > maxB || buyIn > acc.bankroll)
+  if (!Number.isSafeInteger(buyIn) || buyIn < minB || buyIn > acc.bankroll)
     return { success: false, message: 'Buy-in inválido ou saldo insuficiente.' };
 
 
@@ -731,9 +730,9 @@ function handleClientMessage(ws, msg) {
       sendToClient(ws, { type: 'alert', message: 'Dificuldade ou velocidade inválida.' });
       return;
     }
-    const minB = (typeof msg.minBuyIn === 'number' ? msg.minBuyIn : NaN), maxB = (typeof msg.maxBuyIn === 'number' ? msg.maxBuyIn : NaN), defB = (typeof msg.defaultBuyIn === 'number' ? msg.defaultBuyIn : NaN);
-    if (![minB, maxB, defB].every(Number.isSafeInteger) || minB < BIG_BLIND * 10 ||
-        maxB < minB || maxB > 1000000000 || defB < minB || defB > maxB) {
+    const minB = (typeof msg.minBuyIn === 'number' ? msg.minBuyIn : NaN), defB = (typeof msg.defaultBuyIn === 'number' ? msg.defaultBuyIn : NaN);
+    if (![minB, defB].every(Number.isSafeInteger) || minB < BIG_BLIND * 10 ||
+        defB < minB) {
       sendToClient(ws, { type: 'alert', message: 'Limites inválidos: mínimo 2.000; buy-in padrão dentro dos limites.' });
       return;
     }
@@ -744,7 +743,6 @@ function handleClientMessage(ws, msg) {
       botSpeed: msg.botSpeed || 'normal',
       autoFillBots: !!msg.autoFillBots,
       minBuyIn: minB,
-      maxBuyIn: maxB,
       defaultBuyIn: defB
     });
     broadcastLobby();
@@ -814,7 +812,7 @@ function joinRoom(ws, roomId, buyInAmount = null) {
   if (room.handInProgress) {
     const acc = accounts[client.username?.toLowerCase()];
     const buyIn = buyInAmount == null ? room.defaultBuyIn : buyInAmount;
-    if (!acc || !Number.isSafeInteger(buyIn) || buyIn < room.minBuyIn || buyIn > room.maxBuyIn || buyIn > acc.bankroll) {
+    if (!acc || !Number.isSafeInteger(buyIn) || buyIn < room.minBuyIn || buyIn > acc.bankroll) {
       sendToClient(ws, { type: 'alert', message: 'Buy-in inválido ou saldo insuficiente.' }); return;
     }
     const humans = room.seats.filter(s => s && !s.isBot && !s.departed).length;
