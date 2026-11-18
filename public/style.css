@@ -1317,3 +1317,5 @@ body {
 
 .dealer-btn { top: -8px; left: -8px; }
 .seat-0 .seat-bet-chip, .seat-3 .seat-bet-chip { top: -9px; right: -4px; bottom: auto; left: auto; }
+
+.waiting-seat-notice { padding: 10px 14px; border: 1px solid #b88c34; border-radius: 8px; background: #302813; color: #ffe7a5; font-size: 14px; line-height: 1.4; }

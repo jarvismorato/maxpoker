@@ -439,13 +439,13 @@ function renderRoomsList(rooms) {
     const diffMap = {
       easy: 'Iniciante',
       medium: 'Intermediário',
-      hard: 'Avançado'
+      hard: 'Avançado',
+      impossible: 'Impossível'
     };
-    const diffLabel = diffMap[room.botDifficulty] || 'Médio';
+    const diffLabel = room.autoFillBots ? (diffMap[room.botDifficulty] || 'Médio') : 'Só pessoas';
 
     const sBlind = room.smallBlind ?? 10;
     const bBlind = room.bigBlind ?? 20;
-    const players = room.playerCount ?? room.totalCount ?? 0;
     const maxP = room.maxPlayers ?? room.maxSeats ?? 6;
     const minB = room.minBuyIn ?? 400;
     const maxB = room.maxBuyIn ?? 2000;
@@ -462,8 +462,9 @@ function renderRoomsList(rooms) {
           <span class="meta-val">$${sBlind.toLocaleString('pt-BR')} / $${bBlind.toLocaleString('pt-BR')}</span>
         </div>
         <div class="meta-item">
-          <span class="meta-label">Assentos</span>
-          <span class="meta-val">${players} / ${maxP}</span>
+          <span class="meta-label">Jogadores</span>
+          <span class="meta-val">${room.humanCount ?? 0} pessoas · ${room.botCount ?? 0} bots</span>
+          <span class="meta-label">${room.waitingCount ?? 0} aguardando · ${maxP} vagas humanas</span>
         </div>
         <div class="meta-item">
           <span class="meta-label">Buy-in Mín.</span>
@@ -621,10 +622,11 @@ let previousWinnerReported = false;
 function renderTable(table) {
   if (!table) return;
   currentTable = table;
+  document.getElementById('waitingSeatNotice').classList.toggle('hidden', !table.waitingForSeat);
 
   tableHeaderName.textContent = `${table.roomName || table.name} (Blinds $${table.smallBlind || 100}/$${table.bigBlind || 200})`;
   potDisplay.textContent = `POTE: $${table.pot.toLocaleString('pt-BR')}`;
-  tableStatus.textContent = table.statusMsg || 'Mesa ativa.';
+  tableStatus.textContent = table.waitingForSeat ? 'Vaga reservada: você entra na próxima mão, sem débito até sentar.' : (table.statusMsg || 'Mesa ativa.');
 
   // Localiza meu assento
   mySeatIndex = -1;

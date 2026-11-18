@@ -1,6 +1,6 @@
 # Dossiê técnico do MAXpoker
 
-Atualizado em 17 de novembro de 2026 · Versão 1.4.1
+Atualizado em 17 de novembro de 2026 · Versão 1.5.0
 
 ## Objetivo e escopo
 
@@ -57,7 +57,7 @@ isto é restituição, não prêmio. Sobras inteiras em empates seguem a ordem �
 Quando ninguém mais precisa agir, o board avança automaticamente até o showdown.
 
 O prazo humano é de 30 segundos: check se não há valor a pagar; caso contrário, fold.
-A entrada é recusada durante a mão; o jogador pode tentar novamente no intervalo entre mãos.
+Durante a mão, a entrada reserva uma vaga e permite assistir. Ao terminar a mão, humanos aguardando substituem bots; o buy-in é validado e debitado apenas ao sentar. Sair da fila cancela a reserva sem débito.
 Não há recompra automática de humanos. Jogadores sem fichas retornam ao lobby ao final da mão.
 Bots sem fichas recebem o buy-in padrão na preparação da próxima mão.
 
@@ -98,7 +98,7 @@ Há aviso de reconexão, controles de aposta desabilitados durante a queda e est
 ## Bots
 
 Os bots seguem heurísticas simples por categoria da mão e escolhas aleatórias, não um solver.
-Dificuldades aceitas: easy, medium e hard. Velocidades: slow, normal e fast.
+Dificuldades aceitas: easy, medium, hard e impossible. Velocidades: slow, normal e fast.
 Tempos de decisão: lento 2,4–3,4 s; normal 1,8–2,6 s; rápido 0,9–1,3 s.
 Uma tentativa de aumento impossível é convertida em call, evitando travamento de um bot sem stack suficiente.
 
@@ -124,3 +124,11 @@ O teste de integração, ativado por TEST_DATABASE_URL, usa PostgreSQL real e ve
 saldos, reserva e ausência de restituição duplicada após perda do processo e dois reinícios.
 O PostgreSQL gratuito do Render expira após 30 dias; não atende ao armazenamento permanente.
 A URL e os limites do provedor devem ser configurados e verificados antes de publicar esta versão.
+
+## Mesas e bots — versão 1.5.0
+
+A Mesa de Pessoas não contém bots e começa com dois humanos. O lobby distingue pessoas, bots e reservas.
+Bots fáceis pagam 80% das apostas pequenas com mãos fracas e valorizam pares e cartas altas no preflop.
+O nível Impossível estima equidade com 80 simulações de cartas desconhecidas e compara com o preço
+da aposta. Ele não recebe cartas adversárias nem a ordem real do baralho. É o nível mais forte,
+mas não é invencível nem um solver. Há uma mesa Desafio Impossível e a opção ao criar mesas.

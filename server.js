@@ -314,6 +314,7 @@ function createRoom(options = {}) {
     maxBuyIn,
     defaultBuyIn,
     seats: Array(NUM_SEATS).fill(null),
+    pendingJoins: [],
     pot: 0,
     communityCards: [],
     deck: [],
@@ -366,6 +367,11 @@ createRoom({
   autoFillBots: true
 });
 
+createRoom({ id: 'mesa-humanos', name: 'Mesa de Pessoas — sem bots', autoFillBots: false,
+  minBuyIn: 4000, maxBuyIn: 50000, defaultBuyIn: 10000 });
+createRoom({ id: 'mesa-impossivel', name: 'Desafio Impossível', botDifficulty: 'impossible',
+  autoFillBots: true, minBuyIn: 10000, maxBuyIn: 100000, defaultBuyIn: 20000 });
+
 // ==========================================
 // Conexões WebSocket & Autenticação
 // ==========================================
@@ -405,8 +411,8 @@ wss.on('connection', (ws) => {
 function getRoomsSummary() {
   const summary = [];
   for (const room of rooms.values()) {
-    const humanCount = room.seats.filter(s => s && !s.isBot).length;
-    const totalCount = room.seats.filter(s => s !== null).length;
+    const humanCount = room.seats.filter(s => s && !s.isBot && !s.departed).length;
+    const totalCount = room.seats.filter(s => s && !s.departed).length;
     summary.push({
       id: room.id,
       name: room.name,
@@ -417,6 +423,8 @@ function getRoomsSummary() {
       maxBuyIn: room.maxBuyIn,
       defaultBuyIn: room.defaultBuyIn,
       humanCount,
+      botCount: totalCount - humanCount,
+      waitingCount: room.pendingJoins.length,
       totalCount,
       playerCount: totalCount,
       smallBlind: SMALL_BLIND,
@@ -520,6 +528,7 @@ function leaveCurrentRoom(ws) {
   const client = clients.get(ws);
   if (!client || !client.roomId) return;
   const room = rooms.get(client.roomId);
+  if (room) room.pendingJoins = room.pendingJoins.filter(entry => entry.clientId !== client.id);
   const seat = room?.seats[client.seatIndex];
   if (seat?.id === client.id) {
     const acc = accounts[seat.username.toLowerCase()];
@@ -560,6 +569,8 @@ function attachAccount(ws, key) {
 
 function sendRestoredRoom(ws) {
   const client = clients.get(ws);
+  const room = rooms.get(client.roomId);
+  if (room && !room.handInProgress) { seatWaitingPlayers(room); checkGameStart(room); }
   sendToClient(ws, { type: 'init', clientId: client.id, rooms: getRoomsSummary() });
   if (client.roomId) sendToClient(ws, { type: 'joinedRoom', roomId: client.roomId,
     table: getSanitizedTable(rooms.get(client.roomId), client.id) });
@@ -716,7 +727,7 @@ function handleClientMessage(ws, msg) {
 
   // 6. Criar Mesa com Buy-in Ajustável
   else if (msg.type === 'createRoom') {
-    if (!['easy', 'medium', 'hard'].includes(msg.botDifficulty) || !['slow', 'normal', 'fast'].includes(msg.botSpeed)) {
+    if (!['easy', 'medium', 'hard', 'impossible'].includes(msg.botDifficulty) || !['slow', 'normal', 'fast'].includes(msg.botSpeed)) {
       sendToClient(ws, { type: 'alert', message: 'Dificuldade ou velocidade inválida.' });
       return;
     }
@@ -800,6 +811,23 @@ function joinRoom(ws, roomId, buyInAmount = null) {
 
   if (client.roomId) { sendToClient(ws, { type: 'alert', message: 'Saia da mesa atual primeiro.' }); return; }
 
+  if (room.handInProgress) {
+    const acc = accounts[client.username?.toLowerCase()];
+    const buyIn = buyInAmount == null ? room.defaultBuyIn : buyInAmount;
+    if (!acc || !Number.isSafeInteger(buyIn) || buyIn < room.minBuyIn || buyIn > room.maxBuyIn || buyIn > acc.bankroll) {
+      sendToClient(ws, { type: 'alert', message: 'Buy-in inválido ou saldo insuficiente.' }); return;
+    }
+    const humans = room.seats.filter(s => s && !s.isBot && !s.departed).length;
+    if (humans + room.pendingJoins.length >= NUM_SEATS) {
+      sendToClient(ws, { type: 'alert', message: 'Todas as vagas humanas estão ocupadas ou reservadas.' }); return;
+    }
+    room.pendingJoins.push({ clientId: client.id, buyIn });
+    client.roomId = roomId;
+    client.seatIndex = -1;
+    sendToClient(ws, { type: 'joinedRoom', roomId, table: getSanitizedTable(room, client.id) });
+    broadcastLobby();
+    return;
+  }
   const sitRes = sitPlayerInRoom(room, client, -1, buyInAmount);
   if (!sitRes.success) {
     sendToClient(ws, { type: 'alert', message: sitRes.message });
@@ -821,6 +849,25 @@ function joinRoom(ws, roomId, buyInAmount = null) {
   broadcastRoom(room, `${client.username} entrou na mesa!`);
   checkGameStart(room);
   broadcastLobby();
+}
+
+function seatWaitingPlayers(room) {
+  const waiting = room.pendingJoins.splice(0);
+  for (const entry of waiting) {
+    const match = [...clients].find(([, client]) => client.id === entry.clientId && client.roomId === room.id);
+    if (!match) continue;
+    const [ws, client] = match;
+    if (client.disconnected) { room.pendingJoins.push(entry); continue; }
+    const result = sitPlayerInRoom(room, client, -1, entry.buyIn);
+    if (!result.success) {
+      client.roomId = null;
+      client.seatIndex = -1;
+      sendToClient(ws, { type: 'alert', message: result.message });
+      sendToClient(ws, { type: 'leftRoom', rooms: getRoomsSummary(), account: sanitizeAccount(accounts[client.username.toLowerCase()]) });
+    } else {
+      sendToClient(ws, { type: 'accountUpdate', account: sanitizeAccount(accounts[client.username.toLowerCase()]) });
+    }
+  }
 }
 
 function fillBots(room) {
@@ -881,6 +928,7 @@ function getSanitizedTable(room, clientId) {
   });
 
   return {
+    waitingForSeat: room.pendingJoins.some(entry => entry.clientId === clientId),
     roomId: room.id,
     roomName: room.name,
     botDifficulty: room.botDifficulty,
@@ -952,6 +1000,7 @@ function checkGameStart(room) {
   }
 
   const seated = getSeatedPlayers(room);
+  if (seated.length < 2) { broadcastRoom(room, 'Aguardando outra pessoa entrar nesta mesa...'); }
   if (seated.length >= 2) {
     room.statusMsg = 'Embaralhando cartas...';
     broadcastRoom(room);
@@ -1211,6 +1260,7 @@ function scheduleNextHand(room) {
         }
       }
     }
+    seatWaitingPlayers(room);
     saveAccounts();
     broadcastRoom(room);
     broadcastLobby();
@@ -1248,31 +1298,25 @@ function triggerBotTurnIfNeeded(room) {
     if (!bot || !bot.isBot) return;
 
     const toCall = room.currentBet - bot.currentBet;
-    if (bot.actedAtBet != null && room.currentBet - bot.actedAtBet < room.minRaise) {
+    const diff = room.botDifficulty || 'medium';
+    if (!['easy', 'impossible'].includes(diff) && bot.actedAtBet != null && room.currentBet - bot.actedAtBet < room.minRaise) {
       performBotAction(room, room.currentTurnSeat, 'call');
       return;
     }
     const botFull = [...bot.cards, ...room.communityCards];
     const best = botFull.length >= 5 ? getBestHand(botFull) : null;
     const tier = best ? best.score[0] : 1;
-    const diff = room.botDifficulty || 'medium';
 
-    if (diff === 'easy') {
-      if (toCall === 0) {
-        if (tier >= 3 && Math.random() > 0.6) {
-          performBotAction(room, room.currentTurnSeat, 'raise', room.currentBet + room.minRaise);
-        } else {
-          performBotAction(room, room.currentTurnSeat, 'check');
-        }
-      } else {
-        if (tier >= 2 && toCall <= BIG_BLIND * 2) {
-          performBotAction(room, room.currentTurnSeat, 'call');
-        } else if (tier >= 3) {
-          performBotAction(room, room.currentTurnSeat, 'call');
-        } else {
-          performBotAction(room, room.currentTurnSeat, 'fold');
-        }
-      }
+    if (diff === 'easy' || diff === 'impossible') {
+      const { chooseBotAction } = require('./lib/bot-strategy');
+      const decision = chooseBotAction({
+        difficulty: diff, cards: bot.cards, board: room.communityCards,
+        opponents: contenders(room).length - 1, pot: room.pot, toCall,
+        currentBet: room.currentBet, myBet: bot.currentBet, chips: bot.chips,
+        minRaise: room.minRaise, bigBlind: BIG_BLIND,
+        canRaise: bot.actedAtBet == null || room.currentBet - bot.actedAtBet >= room.minRaise
+      }, cards => getBestHand(cards).score);
+      performBotAction(room, room.currentTurnSeat, decision.action, decision.amount);
     } else if (diff === 'hard') {
       if (toCall === 0) {
         if (tier >= 2 || Math.random() > 0.35) {

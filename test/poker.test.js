@@ -14,7 +14,7 @@ function engine(saved = {}) {
       : name === 'fs' ? {
         existsSync: () => true, readFileSync: () => stored,
         writeFileSync: (_, data) => { stored = data; }, renameSync() {}
-      } : require(name),
+      } : name.startsWith('./') ? require(path.resolve(__dirname, '..', name)) : require(name),
     __dirname: path.resolve(__dirname, '..'), process: { env: {} }, console,
     setTimeout: (fn, ms) => { const id = ++nextTimer; timers.set(id, { fn, ms }); return id; },
     clearTimeout: id => timers.delete(id)
@@ -223,4 +223,58 @@ test('bots complete many hands with conservation across short stacks', () => {
     assert.equal(e.run('r.stage'), 'showdown');
     assert.equal(e.run('r.seats.filter(Boolean).reduce((n,s)=>n+s.chips,0)'), stacks.reduce((a,b)=>a+b));
   }
+});
+
+test('join during a hand reserves a seat without touching chips or active bot cards', () => {
+  const e = engine();
+  e.run(`var r=makeRoom([5000,5000]);startNewHand(r);
+    accounts.newplayer={username:'NewPlayer',bankroll:50000};
+    var messages=[];var ws={OPEN:1,readyState:1,send:m=>messages.push(JSON.parse(m))};
+    var c={id:'human',username:'NewPlayer',roomId:null,seatIndex:-1};clients.set(ws,c);
+    var oldId=r.seats[0].id;joinRoom(ws,r.id,5000);`);
+  assert.equal(e.run('accounts.newplayer.bankroll'), 50000);
+  assert.equal(e.run('r.seats[0].id'), e.run('oldId'));
+  assert.equal(e.run('r.seats[0].cards.length'), 2);
+  assert.equal(e.run("getSanitizedTable(r,'human').waitingForSeat"), true);
+  e.run('awardPot(r,r.seats[0]);');
+  e.tick(e.run('r.timer'));
+  assert.equal(e.run('c.seatIndex'), 0);
+  assert.equal(e.run('r.seats[0].chips'), 5000);
+  assert.equal(e.run('accounts.newplayer.bankroll'), 45000);
+  assert.equal(e.run('r.pendingJoins.length'), 0);
+});
+
+test('leaving the waiting list cancels the reservation without charging a buy-in', () => {
+  const e = engine();
+  e.run(`var r=makeRoom([5000,5000]);startNewHand(r);
+    accounts.tester={username:'tester',bankroll:50000};
+    var ws={OPEN:1,readyState:1,send(){}};
+    clients.set(ws,{id:'waiting',username:'tester',roomId:null,seatIndex:-1});
+    joinRoom(ws,r.id,5000);leaveCurrentRoom(ws);`);
+  assert.equal(e.run('r.pendingJoins.length'), 0);
+  assert.equal(e.run('accounts.tester.bankroll'), 50000);
+});
+
+test('human table accepts two people and never fills remaining seats with bots', () => {
+  const e = engine();
+  e.run(`var r=rooms.get('mesa-humanos');
+    for (let i=0;i<2;i++) {
+      accounts['u'+i]={username:'u'+i,bankroll:50000};
+      const ws={OPEN:1,readyState:1,send(){}};
+      clients.set(ws,{id:'u'+i,username:'u'+i,roomId:null,seatIndex:-1});joinRoom(ws,r.id,5000);
+    }`);
+  e.tick(e.run('r.timer'));
+  assert.equal(e.run('r.seats.filter(Boolean).length'), 2);
+  assert.equal(e.run('r.seats.filter(s=>s?.isBot).length'), 0);
+  assert.equal(e.run('r.handInProgress'), true);
+});
+
+test('impossible bots finish a hand with legal actions and preserve chips', () => {
+  const e = engine();
+  e.run(`var r=makeRoom([500,500]);r.botDifficulty='impossible';startNewHand(r);`);
+  for (let step=0;e.run("r.stage !== 'showdown'") && step<100;step++) {
+    e.tick(e.run('r.currentTurnSeat === null ? r.streetTimer : r.botTimer'));
+  }
+  assert.equal(e.run('r.stage'), 'showdown');
+  assert.equal(e.run('r.seats.filter(Boolean).reduce((sum,s)=>sum+s.chips,0)'),1000);
 });

@@ -1,7 +1,7 @@
 # MAXpoker
 
 Texas Hold'em com fichas virtuais, contas locais, mesas de seis lugares e bots.
-Versão 1.4.1.
+Versão 1.5.0.
 
 ## Executar
 
@@ -33,7 +33,7 @@ npm start
 
 - Cadastro: 50.000 fichas; bônus: 10.000 a cada quatro horas.
 - Blinds fixos: 100/200. Mesas personalizadas exigem buy-in mínimo de 2.000.
-- Entrada apenas entre mãos, sem substituir um bot que está jogando.
+- Entrada durante a mão como espectador, com vaga reservada para a próxima mão e débito apenas ao sentar.
 - All-ins, potes laterais e divisão de fichas inteiras; raise mínimo validado pelo servidor.
 - Turno humano: 30 segundos, seguido de check quando possível ou fold.
 - Desconexão: reserva de 30 segundos para recuperar o mesmo assento.
@@ -76,3 +76,11 @@ Consulte DOSSIE_MAXPOKER.md para regras e limitações.
 
 A conta Gabriel possui carteira ilimitada (∞): o servidor recompõe automaticamente
 a reserva mínima de 100 bilhões. Limites das mesas e regras de apostas continuam válidos.
+
+## Mesas e bots — versão 1.5.0
+
+A Mesa de Pessoas não contém bots e começa com dois humanos. O lobby distingue pessoas, bots e reservas.
+Bots fáceis pagam 80% das apostas pequenas com mãos fracas e valorizam pares e cartas altas no preflop.
+O nível Impossível estima equidade com 80 simulações de cartas desconhecidas e compara com o preço
+da aposta. Ele não recebe cartas adversárias nem a ordem real do baralho. É o nível mais forte,
+mas não é invencível nem um solver. Há uma mesa Desafio Impossível e a opção ao criar mesas.
