@@ -314,12 +314,14 @@ function updateAccountUI() {
 
   lobbyUserAvatar.textContent = currentAccount.avatar || '🦁';
   lobbyUserName.textContent = currentAccount.username || 'Jogador';
-  const walletLabel = currentAccount.unlimitedChips ? '∞ Fichas' : `${currentAccount.bankroll.toLocaleString('pt-BR')}`;
+  const walletLabel = currentAccount.unlimitedChips ? '∞ Fichas' : `$${currentAccount.bankroll.toLocaleString('pt-BR')}`;
   lobbyUserBankroll.textContent = walletLabel;
 
   tableUserAvatar.textContent = currentAccount.avatar || '🦁';
   tableUserName.textContent = currentAccount.username || 'Jogador';
-  tableAccountChips.textContent = walletLabel;
+  if (mySeatIndex === -1 || !currentTable?.seats?.[mySeatIndex]) {
+    tableAccountChips.textContent = walletLabel;
+  }
 
   window.refreshAccountSettings?.();
   startBonusCountdown();
@@ -694,8 +696,13 @@ function renderTable(table) {
 function handleWinnerDisplay(table) {
   if (table.lastWinners && table.lastWinners.length > 0) {
     const w = table.lastWinners[0];
-    winnerTitle.textContent = `${w.name} Venceu a Mão!`;
-    winnerDetail.textContent = `+$${w.amount.toLocaleString('pt-BR')} • ${w.handName}`;
+    if (table.lastWinners.length > 1) {
+      winnerTitle.textContent = `Pote dividido: ${table.lastWinners.map((winner) => winner.name).join(', ')}`;
+      winnerDetail.textContent = `+$${w.amount.toLocaleString('pt-BR')} cada • ${w.handName}`;
+    } else {
+      winnerTitle.textContent = `${w.name} Venceu a Mão!`;
+      winnerDetail.textContent = `+$${w.amount.toLocaleString('pt-BR')} • ${w.handName}`;
+    }
     winnerBanner.classList.remove('hidden');
 
     if (!previousWinnerReported) {
@@ -751,19 +758,25 @@ function createCardElement(card) {
 }
 
 function renderSeats(table) {
+  const offset = mySeatIndex !== -1 ? mySeatIndex : 0;
+
   for (let i = 0; i < 6; i++) {
-    const seatEl = document.getElementById(`seat-${i}`);
+    const visualPos = (i - offset + 6) % 6;
+    const seatEl = document.getElementById(`seat-${visualPos}`);
     if (!seatEl) continue;
 
     seatEl.innerHTML = '';
+    seatEl.dataset.seat = String(i);
     const seatData = table.seats[i];
 
     if (!seatData) {
-      seatEl.className = `seat seat-${i} empty-seat`;
+      seatEl.className = `seat seat-${visualPos} empty-seat`;
       seatEl.innerHTML = `
         <div class="seat-player-box">
-          <div class="seat-avatar">🪑</div>
-          <div class="seat-name">Vago</div>
+          <div class="seat-identity">
+            <div class="seat-avatar">🪑</div>
+            <div class="seat-info"><div class="seat-name">Vago</div></div>
+          </div>
         </div>
       `;
       continue;
@@ -774,10 +787,11 @@ function renderSeats(table) {
     const isDealer = (table.dealerSeat === i);
     const isWinner = table.lastWinners && table.lastWinners.some((w) => w.seatIndex === i);
 
-    seatEl.className = `seat seat-${i}`;
+    seatEl.className = `seat seat-${visualPos}`;
     if (isCurrentTurn) seatEl.classList.add('active-turn');
     if (seatData.folded) seatEl.classList.add('folded');
     if (isWinner) seatEl.classList.add('winner-seat');
+    if (isMe) seatEl.classList.add('is-me');
 
     // Box do Jogador
     const box = document.createElement('div');
@@ -785,25 +799,41 @@ function renderSeats(table) {
 
     const displayName = isMe ? `${seatData.name} (Você)` : seatData.name;
     const chipsFmt = `$${seatData.chips.toLocaleString('pt-BR')}`;
-    const statusTag = seatData.lastAction ? '<div class="seat-status-tag"></div>' : '';
 
     box.innerHTML = `
-      <div class="seat-avatar"></div>
-      <div class="seat-name"></div>
-      <div class="seat-chips">${chipsFmt}</div>
-      ${statusTag}
+      <div class="seat-identity">
+        <div class="seat-avatar"></div>
+        <div class="seat-info">
+          <div class="seat-name"></div>
+          <div class="seat-chips"></div>
+        </div>
+      </div>
     `;
 
     box.querySelector('.seat-avatar').textContent = seatData.avatar || (seatData.isBot ? '🤖' : '👤');
     box.querySelector('.seat-name').textContent = displayName;
-    if (seatData.lastAction) box.querySelector('.seat-status-tag').textContent = seatData.lastAction;
+    box.querySelector('.seat-chips').textContent = chipsFmt;
 
-    if (isWinner) {
-      const winData = table.lastWinners.find((w) => w.seatIndex === i);
-      const winBadge = document.createElement('div');
-      winBadge.className = 'seat-winner-badge';
-      winBadge.textContent = `+$${winData.amount.toLocaleString('pt-BR')}`;
-      box.appendChild(winBadge);
+    if (seatData.lastAction || isWinner) {
+      const metaRow = document.createElement('div');
+      metaRow.className = 'seat-meta-row';
+
+      if (seatData.lastAction) {
+        const statusTag = document.createElement('div');
+        statusTag.className = 'seat-status-tag';
+        statusTag.textContent = seatData.lastAction;
+        metaRow.appendChild(statusTag);
+      }
+
+      if (isWinner) {
+        const winData = table.lastWinners.find((w) => w.seatIndex === i);
+        const winBadge = document.createElement('div');
+        winBadge.className = 'seat-winner-badge';
+        winBadge.textContent = `+$${winData.amount.toLocaleString('pt-BR')}`;
+        metaRow.appendChild(winBadge);
+      }
+
+      box.appendChild(metaRow);
     }
 
     // Cartas do Jogador (Cartas de mão)
@@ -829,10 +859,11 @@ function renderSeats(table) {
 
     const cardSignature = JSON.stringify(seatData.cards || []);
     const previousCards = previousSeatCards.get(seatData.id);
+    const hadCards = Boolean(previousCards && previousCards !== '[]');
     if (previousCards !== cardSignature) {
       Array.from(cardsRow.children).forEach((card, index) => {
-        card.classList.add(previousCards ? 'card-reveal' : 'card-deal');
-        card.style.animationDelay = (index * 90 + (previousCards ? 0 : i * 45)) + 'ms';
+        card.classList.add(hadCards ? 'card-reveal' : 'card-deal');
+        card.style.animationDelay = (index * 90 + (hadCards ? 0 : i * 45)) + 'ms';
       });
     }
     previousSeatCards.set(seatData.id, cardSignature);
